@@ -3,6 +3,7 @@
     python -m niyam.ingest recent                      # this month + last month (daily job)
     python -m niyam.ingest months 2024-01 2024-06      # backfill a range of months
     python -m niyam.ingest master-directions           # the Master Directions index
+    python -m niyam.ingest reparse                     # re-derive stored docs from cached HTML
 
 Common options: --match REGEX (filter titles), --limit N, --force (re-fetch known documents).
 """
@@ -85,6 +86,7 @@ def main(argv: list[str] | None = None) -> None:
     months.add_argument("end", nargs="?", help="YYYY-MM (default: same as start)")
     md = sub.add_parser("master-directions", help="ingest the Master Directions index")
     md.add_argument("--section", help="regex on the index section, e.g. 'Non-Banking'")
+    sub.add_parser("reparse", help="re-run the parser on cached HTML (no network)")
     for p in (months, md):
         p.add_argument("--match", help="regex on titles, e.g. 'KYC|digital lending'")
         p.add_argument("--limit", type=int, help="ingest at most N documents")
@@ -99,6 +101,8 @@ def main(argv: list[str] | None = None) -> None:
         with ingestor.scraper.client:
             if args.cmd == "recent":
                 stats = run_recent(ingestor)
+            elif args.cmd == "reparse":
+                stats = ingestor.reparse_cached()
             elif args.cmd == "months":
                 stats = IngestStats()
                 remaining = args.limit

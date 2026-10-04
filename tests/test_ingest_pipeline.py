@@ -21,9 +21,10 @@ from niyam.ingest.scrapers.rbi import ListingEntry
 
 FIXTURES = Path(__file__).parent / "fixtures" / "rbi"
 # Test ids far above real RBI ids so a dev database with real data never collides.
-AMENDMENT, KYC_MD, OLD_MC = 9_013_722, 9_011_566, 9_009_914
+AMENDMENT, KYC_MD, OLD_MC, FEMA = 9_013_722, 9_011_566, 9_009_914, 9_013_714
 PAGES = {
     AMENDMENT: "detail_13722.html",
+    FEMA: "detail_13714_fema.html",
     KYC_MD: "detail_11566_md_withdrawn.html",
     OLD_MC: "detail_9914_old.html",
 }
@@ -103,6 +104,13 @@ def test_new_document_fields(ingestor, session):
     assert d.fetched_at is not None
 
 
+def test_fema_notification_type(ingestor, session):
+    ingestor.ingest([entry(FEMA)])
+    d = get_doc(session, FEMA)
+    assert d.doc_type == "notification"
+    assert d.circular_no == "Notification No. FEMA 23(R)/(1)/2026-RB"
+
+
 def test_rerun_is_idempotent_and_skips_fetching(ingestor, scraper):
     ingestor.ingest([entry(AMENDMENT), entry(OLD_MC)])
     stats = ingestor.ingest([entry(AMENDMENT), entry(OLD_MC)])
@@ -149,6 +157,36 @@ def test_newer_updated_stamp_refetches_and_rebuilds(ingestor, scraper, session, 
     assert session.scalars(select(Chunk).where(Chunk.doc_id == d.id)).all() == []
     history = list((tmp_path / "raw/rbi/notifications/history").glob(f"{KYC_MD}-*.html"))
     assert len(history) == 1 and history[0].read_text(encoding="utf-8") == old_html
+
+
+def test_metadata_refreshes_when_text_is_unchanged(ingestor, scraper, session):
+    ingestor.ingest([entry(AMENDMENT)])
+    d = get_doc(session, AMENDMENT)
+    d.department = None  # e.g. stored by an older parser
+    session.add(
+        Chunk(
+            doc_id=d.id, ord=0, text="c", char_start=0, char_end=1, embedding=[0.0] * EMBEDDING_DIM
+        )
+    )
+    session.commit()
+
+    stats = ingestor.ingest([entry(AMENDMENT)], force=True)
+    assert stats.updated == 1
+    session.refresh(d)
+    assert d.department == "Department of Regulation"
+    assert len(session.scalars(select(Chunk).where(Chunk.doc_id == d.id)).all()) == 1  # kept
+
+
+def test_reparse_uses_cache_without_fetching(ingestor, scraper, session):
+    ingestor.ingest([entry(AMENDMENT), entry(FEMA)])
+    get_doc(session, FEMA).department = None
+    session.commit()
+    fetched_before = len(scraper.fetched)
+
+    stats = ingestor.reparse_cached()
+    assert stats.updated == 1
+    assert len(scraper.fetched) == fetched_before
+    assert get_doc(session, FEMA).department == "Foreign Exchange Department"
 
 
 def test_same_text_under_another_id_is_duplicate(ingestor, scraper):

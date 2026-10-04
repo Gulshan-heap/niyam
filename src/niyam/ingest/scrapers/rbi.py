@@ -227,17 +227,26 @@ def html_to_blocks(root: Tag) -> list[str]:
     return blocks
 
 
-def _department(ref_no: str | None) -> str | None:
-    if not ref_no:
-        return None
-    if _AP_DIR_RE.search(ref_no):
-        return DEPARTMENTS["FED"]
-    m = _DEPT_RE.search(ref_no)
-    return DEPARTMENTS[m.group(1).upper()] if m else None
+def _department(ref_no: str | None, head: str = "") -> str | None:
+    """From the reference prefix (DOR.…, A.P. (DIR Series), FEMA …), else the letterhead."""
+    if ref_no:
+        if _AP_DIR_RE.search(ref_no) or re.search(r"\bFEMA\b", ref_no):
+            return DEPARTMENTS["FED"]
+        m = _DEPT_RE.search(ref_no)
+        if m:
+            return DEPARTMENTS[m.group(1).upper()]
+    head = head.lower()
+    return next((name for name in DEPARTMENTS.values() if name.lower() in head), None)
 
 
 def _numbers(blocks: list[str]) -> tuple[str | None, str | None]:
-    """RBI number (RBI/2026-27/278) and the department reference on the line after it."""
+    """RBI number (RBI/2026-27/278) and the department reference on the line after it.
+
+    FEMA notifications have no RBI number, only a "Notification No. FEMA …" line.
+    """
+    for block in blocks[:8]:
+        if block.startswith("Notification No"):
+            return None, block.split("\n")[0]
     for block in blocks[:5]:
         m = RBI_NO_RE.search(block)
         if not m:
@@ -301,7 +310,7 @@ def parse_detail(html: str, rbi_id: int) -> DetailPage:
         title=title,
         rbi_no=rbi_no,
         ref_no=ref_no,
-        department=_department(ref_no),
+        department=_department(ref_no, head),
         issued_date=_issued_date(blocks),
         updated_on=_latest_updated(raw_title + "\n" + head),
         withdrawn_on=withdrawn_on,

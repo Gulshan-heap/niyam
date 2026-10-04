@@ -62,8 +62,13 @@ def upsert_document(
     pdf_url: str | None = None,
     source_path: str | None = None,
     from_md_index: bool = False,
+    fetched: bool = True,
 ) -> str:
-    """Insert or update one document. Returns new / updated / unchanged / duplicate."""
+    """Insert or update one document. Returns new / updated / unchanged / duplicate.
+
+    Metadata is always re-derived from the page (so parser fixes apply on re-runs); chunks
+    are only dropped when the text itself changed.
+    """
     text = page.text
     digest = hashlib.sha256(text.encode("utf-8")).hexdigest()
     issued = page.issued_date or listed_date
@@ -75,42 +80,53 @@ def upsert_document(
             Document.regulator == REGULATOR, Document.source_id == str(page.rbi_id)
         )
     )
-    if doc is not None and doc.content_hash == digest:
-        return "unchanged"
-    clash = session.scalar(
-        select(Document.source_id).where(
-            Document.content_hash == digest, Document.id != (doc.id if doc else -1)
+    text_changed = doc is None or doc.content_hash != digest
+    if text_changed:
+        clash = session.scalar(
+            select(Document.source_id).where(
+                Document.content_hash == digest, Document.id != (doc.id if doc else -1)
+            )
         )
-    )
-    if clash is not None:
-        log.info("RBI %s has the same text as RBI %s; skipping", page.rbi_id, clash)
-        return "duplicate"
+        if clash is not None:
+            log.info("RBI %s has the same text as RBI %s; skipping", page.rbi_id, clash)
+            return "duplicate"
+
+    is_md = from_md_index or (doc is not None and doc.doc_type == "master_direction")
+    values = {
+        "circular_no": page.ref_no or page.rbi_no,
+        "rbi_no": page.rbi_no,
+        "title": page.title,
+        "department": page.department,
+        "doc_type": doc_type_for(page, is_md),
+        "issued_date": issued,
+        "updated_on": page.updated_on,
+        "withdrawn_on": page.withdrawn_on,
+        # Initial validity window from what the page states; the temporal layer refines it.
+        "valid_from": (doc.effective_from if doc else None) or issued,
+        "valid_to": page.withdrawn_on,
+        "url": detail_url(page.rbi_id),
+        "pdf_url": page.pdf_url or pdf_url,
+        "source_path": source_path,
+        "raw_text": text,
+        "content_hash": digest,
+    }
 
     if doc is None:
         outcome = "new"
         doc = Document(regulator=REGULATOR, source_id=str(page.rbi_id))
         session.add(doc)
-    else:
+    elif text_changed:
         outcome = "updated"
         session.execute(delete(Chunk).where(Chunk.doc_id == doc.id))  # rebuilt from new text
+    elif any(getattr(doc, k) != v for k, v in values.items()):
+        outcome = "updated"
+    else:
+        return "unchanged"
 
-    doc.circular_no = page.ref_no or page.rbi_no
-    doc.rbi_no = page.rbi_no
-    doc.title = page.title
-    doc.department = page.department
-    doc.doc_type = doc_type_for(page, from_md_index)
-    doc.issued_date = issued
-    doc.updated_on = page.updated_on
-    doc.withdrawn_on = page.withdrawn_on
-    # Initial validity window from what the page states; the temporal layer refines it.
-    doc.valid_from = doc.effective_from or issued
-    doc.valid_to = page.withdrawn_on
-    doc.url = detail_url(page.rbi_id)
-    doc.pdf_url = page.pdf_url or pdf_url
-    doc.source_path = source_path
-    doc.raw_text = text
-    doc.content_hash = digest
-    doc.fetched_at = datetime.now(UTC)
+    for k, v in values.items():
+        setattr(doc, k, v)
+    if fetched:
+        doc.fetched_at = datetime.now(UTC)
     session.flush()
     return outcome
 
@@ -170,6 +186,32 @@ class RbiIngestor:
                 .values(doc_type="master_direction")
             )
             self.session.commit()
+        return stats
+
+    def reparse_cached(self) -> IngestStats:
+        """Re-derive every stored document from its cached HTML. No network."""
+        stats = IngestStats()
+        docs = self.session.execute(
+            select(Document.source_id, Document.source_path, Document.issued_date).where(
+                Document.regulator == REGULATOR, Document.source_path.is_not(None)
+            )
+        ).all()
+        for source_id, source_path, issued in docs:
+            path = Path(source_path)
+            if not path.is_absolute():
+                path = self.data_dir / path
+            try:
+                page = parse_detail(path.read_text(encoding="utf-8"), int(source_id))
+                outcome = upsert_document(
+                    self.session, page, listed_date=issued, source_path=source_path, fetched=False
+                )
+            except (OSError, ValueError) as exc:
+                self.session.rollback()
+                log.warning("RBI %s reparse failed: %s", source_id, exc)
+                stats.add("failed")
+                continue
+            self.session.commit()
+            stats.add(outcome)
         return stats
 
     def _ingest_one(self, entry: ListingEntry, *, from_md_index: bool, refresh: bool) -> str:

@@ -188,3 +188,18 @@ def test_detail_url_is_canonical():
     assert (
         detail_url(13086) == "https://www.rbi.org.in/Scripts/NotificationUser.aspx?Id=13086&Mode=0"
     )
+
+
+def test_detail_fema_notification():
+    d = parse_detail(fixture("detail_13714_fema.html"), 13714)
+    assert d.rbi_no is None
+    assert d.ref_no == "Notification No. FEMA 23(R)/(1)/2026-RB"
+    assert d.department == "Foreign Exchange Department"
+    assert d.issued_date == date(2026, 9, 22)
+    assert d.title.startswith("Foreign Exchange Management (Export and Import")
+
+
+def test_department_from_letterhead():
+    assert _department(None, "RESERVE BANK OF INDIA\nFOREIGN EXCHANGE DEPARTMENT") == (
+        "Foreign Exchange Department"
+    )
