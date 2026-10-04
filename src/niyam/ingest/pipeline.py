@@ -20,6 +20,7 @@ from niyam.ingest.http import BlockedError, FetchError
 from niyam.ingest.scrapers.rbi import (
     DetailPage,
     ListingEntry,
+    PageNotFoundError,
     RbiScraper,
     detail_url,
     is_master_direction,
@@ -39,6 +40,7 @@ class IngestStats:
     updated: int = 0
     unchanged: int = 0
     duplicate: int = 0
+    missing: int = 0  # no document at that id
     failed: int = 0
 
     def add(self, outcome: str) -> None:
@@ -241,7 +243,12 @@ class RbiIngestor:
             old_html = cached.read_text(encoding="utf-8")
 
         html, path = self.scraper.fetch_detail(entry.rbi_id, refresh=refresh)
-        page = parse_detail(html, entry.rbi_id)
+        try:
+            page = parse_detail(html, entry.rbi_id)
+        except PageNotFoundError:
+            if path is not None:
+                path.unlink(missing_ok=True)  # don't cache: the id may be used later
+            return "missing"
         text_as_of = None
         if not page.has_text and page.has_previous_versions:
             page, path, text_as_of = self._latest_version(page)

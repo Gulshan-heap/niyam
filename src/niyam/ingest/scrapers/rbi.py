@@ -72,6 +72,10 @@ _BLOCK_TAGS = {
 }  # fmt: skip
 
 
+class PageNotFoundError(ValueError):
+    """The id has no document: RBI serves the page frame with an empty content area."""
+
+
 @dataclass
 class ListingEntry:
     rbi_id: int
@@ -301,7 +305,7 @@ def parse_detail(html: str, rbi_id: int) -> DetailPage:
     soup = _soup(html)
     container = soup.find("div", id="NotificationUser") or soup.find("div", id="example-min")
     if container is None:
-        raise ValueError(f"RBI page {rbi_id}: no content container")
+        raise PageNotFoundError(f"RBI page {rbi_id}: no content container")
 
     title_cell = container.find("td", class_="tableheader", align="center")
     raw_title = _clean(title_cell.get_text(" ")) if title_cell else ""
@@ -310,7 +314,7 @@ def parse_detail(html: str, rbi_id: int) -> DetailPage:
     pdf = container.find("a", href=re.compile(r"\.pdf$", re.I))
     content = container.find("tr", class_="tablecontent2")
     if content is None:
-        raise ValueError(f"RBI page {rbi_id}: no content row")
+        raise PageNotFoundError(f"RBI page {rbi_id}: no content row")
     # "Previous Versions" is navigation, not text.
     version_links = content.find_all("a", href=VERSION_LINK_RE)
     for a in version_links:

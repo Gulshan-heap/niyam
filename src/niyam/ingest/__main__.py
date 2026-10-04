@@ -3,9 +3,13 @@
     python -m niyam.ingest recent                      # this month + last month (daily job)
     python -m niyam.ingest months 2024-01 2024-06      # backfill a range of months
     python -m niyam.ingest master-directions           # the Master Directions index
+    python -m niyam.ingest ids 12200 13725             # every page id in a range
     python -m niyam.ingest reparse                     # re-derive stored docs from cached HTML
 
 Common options: --match REGEX (filter titles), --limit N, --force (re-fetch known documents).
+
+The monthly listings omit many past circulars (withdrawn ones among them), so `ids` is the
+way to get complete history: RBI page ids are sequential.
 """
 
 import argparse
@@ -48,6 +52,11 @@ def select_entries(
     return entries
 
 
+def id_entries(first: int, last: int) -> list[ListingEntry]:
+    """Entries for a page-id range, newest first. Titles and dates come from the pages."""
+    return [ListingEntry(i, "", None, None) for i in range(last, first - 1, -1)]
+
+
 def run_recent(ingestor: RbiIngestor, today: date | None = None) -> IngestStats:
     """Daily job: re-list this month and last month (late postings), plus MD updates."""
     today = today or date.today()
@@ -86,6 +95,11 @@ def main(argv: list[str] | None = None) -> None:
     months.add_argument("end", nargs="?", help="YYYY-MM (default: same as start)")
     md = sub.add_parser("master-directions", help="ingest the Master Directions index")
     md.add_argument("--section", help="regex on the index section, e.g. 'Non-Banking'")
+    ids = sub.add_parser("ids", help="ingest every page id in a range (complete history)")
+    ids.add_argument("first", type=int)
+    ids.add_argument("last", type=int, help="inclusive")
+    ids.add_argument("--limit", type=int, help="ingest at most N documents")
+    ids.add_argument("--force", action="store_true", help="re-fetch documents already stored")
     sub.add_parser("reparse", help="re-run the parser on cached HTML (no network)")
     for p in (months, md):
         p.add_argument("--match", help="regex on titles, e.g. 'KYC|digital lending'")
@@ -103,6 +117,9 @@ def main(argv: list[str] | None = None) -> None:
                 stats = run_recent(ingestor)
             elif args.cmd == "reparse":
                 stats = ingestor.reparse_cached()
+            elif args.cmd == "ids":
+                entries = id_entries(args.first, args.last)[: args.limit]
+                stats = ingestor.ingest(entries, force=args.force)
             elif args.cmd == "months":
                 stats = IngestStats()
                 remaining = args.limit

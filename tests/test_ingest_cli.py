@@ -1,6 +1,6 @@
 from datetime import date
 
-from niyam.ingest.__main__ import month_range, previous_month, select_entries
+from niyam.ingest.__main__ import id_entries, month_range, previous_month, select_entries
 from niyam.ingest.scrapers.rbi import ListingEntry
 
 
@@ -28,3 +28,7 @@ def test_select_entries_by_title_and_section():
         "Digital Lending Directions",
     ]
     assert len(select_entries(entries, section="non-banking")) == 1
+
+
+def test_id_entries_newest_first_inclusive():
+    assert [e.rbi_id for e in id_entries(10, 13)] == [13, 12, 11, 10]

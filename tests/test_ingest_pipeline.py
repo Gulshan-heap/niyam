@@ -257,6 +257,13 @@ def test_pdf_only_direction_takes_text_from_latest_version(ingestor, session):
     assert d.source_path == f"raw/rbi/notifications/{PDF_ONLY}-v336.html"
 
 
+def test_empty_id_is_missing_and_not_cached(ingestor, scraper, tmp_path):
+    scraper.pages[9_999_999] = "<html><body><div id='NotificationUser'></div></body></html>"
+    stats = ingestor.ingest([entry(9_999_999)])
+    assert (stats.missing, stats.failed) == (1, 0)
+    assert not (tmp_path / "raw/rbi/notifications/9999999.html").exists()
+
+
 def test_pdf_only_skips_newer_versions_that_are_pdf_only_too(ingestor, scraper, session):
     scraper.versions[PDF_ONLY].insert(0, ("detail_13136_pdf_only.html", 400, date(2026, 7, 1)))
     stats = ingestor.ingest([entry(PDF_ONLY, updated_on=date(2026, 10, 1))], from_md_index=True)
