@@ -1,7 +1,7 @@
 """Daily ingestion worker: `python -m niyam.scheduler`.
 
 Runs the RBI `recent` ingestion once at start-up (optional) and then every day at
-NIYAM_INGEST_HOUR:NIYAM_INGEST_MINUTE India time.
+NIYAM_INGEST_HOUR:NIYAM_INGEST_MINUTE India time, then chunks and embeds whatever is new.
 """
 
 import logging
@@ -15,6 +15,8 @@ from sqlalchemy.orm import Session
 from niyam.config import get_settings
 from niyam.db.session import get_engine
 from niyam.ingest.__main__ import build_ingestor, run_recent
+from niyam.ingest.index import build_index
+from niyam.retrieval.embeddings import get_embedder
 
 log = logging.getLogger("niyam.scheduler")
 
@@ -26,7 +28,9 @@ def daily_ingest() -> None:
         ingestor = build_ingestor(session)
         with ingestor.scraper.client:
             stats = run_recent(ingestor)
-    log.info("daily RBI ingest done: %s", stats)
+        log.info("daily RBI ingest done: %s", stats)
+        index = build_index(session, get_embedder())
+        log.info("index updated: %s", index)
 
 
 def build_scheduler() -> BlockingScheduler:
