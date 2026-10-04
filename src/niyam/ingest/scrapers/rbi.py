@@ -4,6 +4,10 @@ PDFs live on rbidocs.rbi.org.in behind a bot challenge, so we don't download the
 detail page at NotificationUser.aspx?Id=N carries the full text, so it is the source of truth.
 Master Directions share the same id space (BS_ViewMasDirections.aspx?id=N is the same
 document), so every document is stored under its NotificationUser URL.
+
+Exception: the current version of the 2025 consolidated Directions is published as a PDF only;
+its page just links to "Previous Versions" (NotificationPreVersion.aspx), whose dated versions
+do carry the full HTML text.
 """
 
 import re
@@ -18,6 +22,8 @@ from niyam.ingest.http import PoliteClient
 BASE_URL = "https://www.rbi.org.in/Scripts/"
 LISTING_URL = BASE_URL + "NotificationUser.aspx"
 MD_INDEX_URL = BASE_URL + "BS_ViewMasterDirections.aspx"
+VERSIONS_URL = BASE_URL + "NotificationPreVersion.aspx"
+MIN_TEXT_CHARS = 200  # less than this means the page has no real content (e.g. PDF-only)
 
 _MONTHS = (
     "January|February|March|April|May|June|July|August|September|October|November|December"
@@ -29,6 +35,9 @@ UPDATED_RE = re.compile(rf"\(\s*Updated as on\s+({_MONTHS})\.?\s+(\d{{1,2}}),?\s
 RBI_NO_RE = re.compile(r"\bRBI/(?:[A-Za-z]+/)?\d{4}-\d{2,4}/\d+")
 WITHDRAWN_RE = re.compile(r"Withdrawn(\d{2})(\d{2})(\d{4})\.jpg", re.I)
 DOC_LINK_RE = re.compile(r"(?:NotificationUser|BS_ViewMasDirections)\.aspx\?id=(\d+)", re.I)
+VERSION_LINK_RE = re.compile(
+    r"NotificationPreVersion\.aspx\?id=(\d+)(?:&(?:amp;)?Histid=(\d+))?", re.I
+)
 
 # Reference-number prefixes -> issuing department. Old names are kept for older circulars.
 DEPARTMENTS = {
@@ -86,10 +95,22 @@ class DetailPage:
     pdf_url: str | None
     blocks: list[str]
     linked_ids: list[int] = field(default_factory=list)
+    has_previous_versions: bool = False
 
     @property
     def text(self) -> str:
         return "\n\n".join(self.blocks)
+
+    @property
+    def has_text(self) -> bool:
+        return len(self.text) >= MIN_TEXT_CHARS
+
+
+@dataclass
+class Version:
+    hist_id: int
+    as_of: date
+    url: str
 
 
 def detail_url(rbi_id: int) -> str:
@@ -276,10 +297,11 @@ def _latest_updated(text: str) -> date | None:
 
 
 def parse_detail(html: str, rbi_id: int) -> DetailPage:
+    """Parse a detail page, or a dated version page (same layout, different container)."""
     soup = _soup(html)
-    container = soup.find("div", id="NotificationUser")
+    container = soup.find("div", id="NotificationUser") or soup.find("div", id="example-min")
     if container is None:
-        raise ValueError(f"RBI page {rbi_id}: no NotificationUser container")
+        raise ValueError(f"RBI page {rbi_id}: no content container")
 
     title_cell = container.find("td", class_="tableheader", align="center")
     raw_title = _clean(title_cell.get_text(" ")) if title_cell else ""
@@ -289,6 +311,10 @@ def parse_detail(html: str, rbi_id: int) -> DetailPage:
     content = container.find("tr", class_="tablecontent2")
     if content is None:
         raise ValueError(f"RBI page {rbi_id}: no content row")
+    # "Previous Versions" is navigation, not text.
+    version_links = content.find_all("a", href=VERSION_LINK_RE)
+    for a in version_links:
+        a.decompose()
     blocks = html_to_blocks(content)
 
     withdrawn_on = None
@@ -317,7 +343,25 @@ def parse_detail(html: str, rbi_id: int) -> DetailPage:
         pdf_url=pdf["href"] if pdf else None,
         blocks=blocks,
         linked_ids=linked,
+        has_previous_versions=bool(version_links),
     )
+
+
+def parse_versions(html: str) -> list[Version]:
+    """Dated versions on NotificationPreVersion.aspx?id=N, newest first."""
+    versions = []
+    for a in _soup(html).find_all("a", href=VERSION_LINK_RE):
+        m = VERSION_LINK_RE.search(a["href"])
+        as_of = parse_date(a.get_text(" "))
+        if m and m.group(2) and as_of:
+            versions.append(
+                Version(
+                    hist_id=int(m.group(2)),
+                    as_of=as_of,
+                    url=f"{VERSIONS_URL}?id={m.group(1)}&Histid={m.group(2)}",
+                )
+            )
+    return sorted(versions, key=lambda v: (v.as_of, v.hist_id), reverse=True)
 
 
 def is_master_direction(title: str) -> bool:
@@ -348,5 +392,19 @@ class RbiScraper:
     def fetch_detail(self, rbi_id: int, refresh: bool = False) -> tuple[str, Path | None]:
         key = f"rbi/notifications/{rbi_id}.html"
         html = self.client.get_text(detail_url(rbi_id), cache_key=key, refresh=refresh)
-        path = self.client.cache_dir / key if self.client.cache_dir else None
-        return html, path
+        return html, self._path(key)
+
+    def fetch_latest_version(self, rbi_id: int) -> tuple[str, Path | None, date] | None:
+        """Newest dated version, for current pages that are PDF-only."""
+        listing = self.client.get_text(
+            f"{VERSIONS_URL}?id={rbi_id}", cache_key=f"rbi/versions/{rbi_id}.html", refresh=True
+        )
+        versions = parse_versions(listing)
+        if not versions:
+            return None
+        v = versions[0]
+        key = f"rbi/notifications/{rbi_id}-v{v.hist_id}.html"  # dated versions never change
+        return self.client.get_text(v.url, cache_key=key), self._path(key), v.as_of
+
+    def _path(self, key: str) -> Path | None:
+        return self.client.cache_dir / key if self.client.cache_dir else None

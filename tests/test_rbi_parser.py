@@ -15,6 +15,7 @@ from niyam.ingest.scrapers.rbi import (
     parse_detail,
     parse_form_state,
     parse_listing,
+    parse_versions,
 )
 
 FIXTURES = Path(__file__).parent / "fixtures" / "rbi"
@@ -203,3 +204,44 @@ def test_department_from_letterhead():
     assert _department(None, "RESERVE BANK OF INDIA\nFOREIGN EXCHANGE DEPARTMENT") == (
         "Foreign Exchange Department"
     )
+
+
+# ---------- PDF-only pages and previous versions ----------
+
+
+def test_pdf_only_page_has_no_text_but_links_previous_versions():
+    d = parse_detail(fixture("detail_13136_pdf_only.html"), 13136)
+    assert d.title == "Reserve Bank of India (Commercial Banks – Miscellaneous) Directions, 2025"
+    assert d.updated_on == date(2026, 10, 1)
+    assert d.text == ""  # the "Previous Versions" link is navigation, not text
+    assert not d.has_text
+    assert d.has_previous_versions
+
+
+def test_parse_versions_newest_first():
+    html = (
+        '<a class="link1" href=NotificationPreVersion.aspx?id=7&Histid=10> Updated as on Nov 28,'
+        ' 2025</a><a class="link1" href=NotificationPreVersion.aspx?id=7&Histid=12> Updated as on'
+        " Jan 05, 2026</a>"
+    )
+    versions = parse_versions(html)
+    assert [(v.hist_id, v.as_of) for v in versions] == [
+        (12, date(2026, 1, 5)),
+        (10, date(2025, 11, 28)),
+    ]
+    assert versions[0].url.endswith("NotificationPreVersion.aspx?id=7&Histid=12")
+
+
+def test_parse_versions_fixture():
+    (v,) = parse_versions(fixture("versions_13136.html"))
+    assert (v.hist_id, v.as_of) == (336, date(2025, 11, 28))
+
+
+def test_dated_version_page_has_full_text():
+    d = parse_detail(fixture("version_13136_h336.html"), 13136)
+    assert d.has_text
+    assert d.rbi_no == "RBI/DOR/2025-26/174"
+    assert d.ref_no == "DOR.SOG(SPE).REC.No.93/13-04-001/2025-26"
+    assert d.department == "Department of Regulation"
+    assert d.issued_date == date(2025, 11, 28)
+    assert "Table of Contents" in d.text
