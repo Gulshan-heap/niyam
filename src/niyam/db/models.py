@@ -37,13 +37,16 @@ class Document(Base):
     __tablename__ = "documents"
     __table_args__ = (
         UniqueConstraint("regulator", "url"),
+        UniqueConstraint("regulator", "source_id"),
         CheckConstraint("regulator IN ('RBI', 'SEBI')"),
         CheckConstraint("doc_type IN ('circular', 'master_direction', 'notification')"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     regulator: Mapped[str] = mapped_column(String(16))
+    source_id: Mapped[str | None] = mapped_column(String(32))  # regulator's own id (RBI page Id)
     circular_no: Mapped[str | None] = mapped_column(String(128), index=True)
+    rbi_no: Mapped[str | None] = mapped_column(String(64))  # e.g. RBI/2026-27/278
     title: Mapped[str] = mapped_column(Text)
     department: Mapped[str | None] = mapped_column(String(256))
     doc_type: Mapped[str] = mapped_column(String(32))
@@ -51,10 +54,16 @@ class Document(Base):
     effective_from: Mapped[date | None] = mapped_column(Date)
     valid_from: Mapped[date | None] = mapped_column(Date)
     valid_to: Mapped[date | None] = mapped_column(Date)
+    # Stated by the regulator: last "Updated as on" stamp, and the date it was withdrawn.
+    updated_on: Mapped[date | None] = mapped_column(Date)
+    withdrawn_on: Mapped[date | None] = mapped_column(Date)
     url: Mapped[str] = mapped_column(Text)
+    pdf_url: Mapped[str | None] = mapped_column(Text)
     pdf_path: Mapped[str | None] = mapped_column(Text)
+    source_path: Mapped[str | None] = mapped_column(Text)  # cached HTML, relative to data_dir
     raw_text: Mapped[str | None] = mapped_column(Text)
     content_hash: Mapped[str | None] = mapped_column(String(64), unique=True)
+    fetched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
