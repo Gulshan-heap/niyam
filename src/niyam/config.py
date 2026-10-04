@@ -11,6 +11,11 @@ class Settings(BaseSettings):
     data_dir: str = "data"
     log_level: str = "INFO"
 
+    # Scraping: identify ourselves and stay slow.
+    user_agent: str = "NiyamBot/0.1 (+https://github.com/Gulshan-heap/niyam)"
+    request_interval_seconds: float = 2.0
+    http_timeout_seconds: float = 60.0
+
 
 @lru_cache
 def get_settings() -> Settings:
