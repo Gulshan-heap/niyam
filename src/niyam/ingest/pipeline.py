@@ -9,7 +9,7 @@ import hashlib
 import logging
 import re
 from dataclasses import dataclass, fields
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from pathlib import Path
 
 from sqlalchemy import delete, select, update
@@ -29,6 +29,7 @@ from niyam.ingest.scrapers.rbi import (
 log = logging.getLogger(__name__)
 
 REGULATOR = "RBI"
+VERSION_FILE_RE = re.compile(r"-v\d+\.html$")  # cached dated version, e.g. 13136-v336.html
 
 
 @dataclass
@@ -63,12 +64,16 @@ def upsert_document(
     source_path: str | None = None,
     from_md_index: bool = False,
     fetched: bool = True,
+    text_as_of: date | None = None,
 ) -> str:
     """Insert or update one document. Returns new / updated / unchanged / duplicate.
 
     Metadata is always re-derived from the page (so parser fixes apply on re-runs); chunks
-    are only dropped when the text itself changed.
+    are only dropped when the text itself changed. `text_as_of` defaults to the page's own
+    "Updated as on" stamp or issue date.
     """
+    if not page.has_text:
+        raise ValueError(f"RBI {page.rbi_id}: page has no text")
     text = page.text
     digest = hashlib.sha256(text.encode("utf-8")).hexdigest()
     issued = page.issued_date or listed_date
@@ -101,6 +106,7 @@ def upsert_document(
         "issued_date": issued,
         "updated_on": page.updated_on,
         "withdrawn_on": page.withdrawn_on,
+        "text_as_of": text_as_of or page.updated_on or issued,
         # Initial validity window from what the page states; the temporal layer refines it.
         "valid_from": (doc.effective_from if doc else None) or issued,
         "valid_to": page.withdrawn_on,
@@ -192,18 +198,31 @@ class RbiIngestor:
         """Re-derive every stored document from its cached HTML. No network."""
         stats = IngestStats()
         docs = self.session.execute(
-            select(Document.source_id, Document.source_path, Document.issued_date).where(
-                Document.regulator == REGULATOR, Document.source_path.is_not(None)
-            )
+            select(
+                Document.source_id,
+                Document.source_path,
+                Document.issued_date,
+                Document.updated_on,
+                Document.text_as_of,
+            ).where(Document.regulator == REGULATOR, Document.source_path.is_not(None))
         ).all()
-        for source_id, source_path, issued in docs:
+        for source_id, source_path, issued, updated_on, text_as_of in docs:
             path = Path(source_path)
             if not path.is_absolute():
                 path = self.data_dir / path
+            from_version = VERSION_FILE_RE.search(path.name) is not None
             try:
                 page = parse_detail(path.read_text(encoding="utf-8"), int(source_id))
+                if from_version:
+                    # A dated version page doesn't carry the current "Updated as on" stamp.
+                    page.updated_on = updated_on
                 outcome = upsert_document(
-                    self.session, page, listed_date=issued, source_path=source_path, fetched=False
+                    self.session,
+                    page,
+                    listed_date=issued,
+                    source_path=source_path,
+                    fetched=False,
+                    text_as_of=text_as_of if from_version else None,
                 )
             except (OSError, ValueError) as exc:
                 self.session.rollback()
@@ -222,6 +241,9 @@ class RbiIngestor:
 
         html, path = self.scraper.fetch_detail(entry.rbi_id, refresh=refresh)
         page = parse_detail(html, entry.rbi_id)
+        text_as_of = None
+        if not page.has_text and page.has_previous_versions:
+            page, path, text_as_of = self._latest_version(page)
         if not page.title:
             page.title = entry.title
         outcome = upsert_document(
@@ -231,10 +253,25 @@ class RbiIngestor:
             pdf_url=entry.pdf_url,
             source_path=self._relative(path),
             from_md_index=from_md_index,
+            text_as_of=text_as_of,
         )
         if outcome == "updated" and old_html and old_html != html and cached is not None:
             self._archive(cached, old_html)
         return outcome
+
+    def _latest_version(self, current: DetailPage) -> tuple[DetailPage, Path | None, date]:
+        """The current page is PDF-only: take the text of the newest dated version, but keep
+        the current page's title, "Updated as on" stamp and PDF link."""
+        latest = self.scraper.fetch_latest_version(current.rbi_id)
+        if latest is None:
+            raise ValueError(f"RBI {current.rbi_id}: PDF-only and no previous versions listed")
+        html, path, as_of = latest
+        page = parse_detail(html, current.rbi_id)
+        page.title = current.title or page.title
+        page.updated_on = current.updated_on
+        page.pdf_url = current.pdf_url or page.pdf_url
+        log.info("RBI %s is PDF-only; using text of version dated %s", current.rbi_id, as_of)
+        return page, path, as_of
 
     def _cache_file(self, rbi_id: int) -> Path | None:
         root = self.scraper.client.cache_dir

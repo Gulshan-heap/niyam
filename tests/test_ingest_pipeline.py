@@ -21,8 +21,9 @@ from niyam.ingest.scrapers.rbi import ListingEntry
 
 FIXTURES = Path(__file__).parent / "fixtures" / "rbi"
 # Test ids far above real RBI ids so a dev database with real data never collides.
-AMENDMENT, KYC_MD, OLD_MC, FEMA = 9_013_722, 9_011_566, 9_009_914, 9_013_714
+AMENDMENT, KYC_MD, OLD_MC, FEMA, PDF_ONLY = 9_013_722, 9_011_566, 9_009_914, 9_013_714, 9_013_136
 PAGES = {
+    PDF_ONLY: "detail_13136_pdf_only.html",
     AMENDMENT: "detail_13722.html",
     FEMA: "detail_13714_fema.html",
     KYC_MD: "detail_11566_md_withdrawn.html",
@@ -59,6 +60,7 @@ class FakeScraper:
             i: _unique(i, (FIXTURES / name).read_text(encoding="utf-8"))
             for i, name in PAGES.items()
         }
+        self.versions = {PDF_ONLY: ("version_13136_h336.html", 336, date(2025, 11, 28))}
         self.fetched: list[tuple[int, bool]] = []
         self.errors: dict[int, Exception] = {}
 
@@ -70,6 +72,16 @@ class FakeScraper:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(self.pages[rbi_id], encoding="utf-8")
         return self.pages[rbi_id], path
+
+    def fetch_latest_version(self, rbi_id: int):
+        if rbi_id not in self.versions:
+            return None
+        name, hist_id, as_of = self.versions[rbi_id]
+        html = _unique(rbi_id, (FIXTURES / name).read_text(encoding="utf-8"))
+        path = self.client.cache_dir / f"rbi/notifications/{rbi_id}-v{hist_id}.html"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(html, encoding="utf-8")
+        return html, path, as_of
 
 
 @pytest.fixture
@@ -225,3 +237,36 @@ def test_md_index_marks_known_documents_as_master_directions(ingestor, session):
     ingestor.ingest([entry(OLD_MC)], from_md_index=True)
     session.expire_all()
     assert get_doc(session, OLD_MC).doc_type == "master_direction"
+
+
+def test_pdf_only_direction_takes_text_from_latest_version(ingestor, session):
+    stats = ingestor.ingest([entry(PDF_ONLY, updated_on=date(2026, 10, 1))], from_md_index=True)
+    assert stats.new == 1
+    d = get_doc(session, PDF_ONLY)
+    assert d.title == "Reserve Bank of India (Commercial Banks – Miscellaneous) Directions, 2025"
+    assert d.doc_type == "master_direction"
+    assert d.rbi_no == "RBI/DOR/2025-26/174"
+    assert "Table of Contents" in d.raw_text
+    assert d.updated_on == date(2026, 10, 1)  # RBI's current stamp, from the PDF-only page
+    assert d.text_as_of == date(2025, 11, 28)  # but the text we hold is this version's
+    assert d.source_path == f"raw/rbi/notifications/{PDF_ONLY}-v336.html"
+
+
+def test_pdf_only_without_versions_fails(ingestor, scraper, session):
+    del scraper.versions[PDF_ONLY]
+    stats = ingestor.ingest([entry(PDF_ONLY)])
+    assert stats.failed == 1
+    assert session.scalars(select(Document).where(Document.source_id == str(PDF_ONLY))).all() == []
+
+
+def test_text_as_of_defaults_to_page_stamp_or_issue_date(ingestor, session):
+    ingestor.ingest([entry(AMENDMENT), entry(KYC_MD)])
+    assert get_doc(session, AMENDMENT).text_as_of == date(2026, 10, 1)  # issued
+    assert get_doc(session, KYC_MD).text_as_of == date(2025, 8, 14)  # last "Updated as on"
+
+
+def test_reparse_keeps_version_dates(ingestor, session):
+    ingestor.ingest([entry(PDF_ONLY, updated_on=date(2026, 10, 1))], from_md_index=True)
+    ingestor.reparse_cached()
+    d = get_doc(session, PDF_ONLY)
+    assert (d.updated_on, d.text_as_of) == (date(2026, 10, 1), date(2025, 11, 28))

@@ -57,6 +57,9 @@ class Document(Base):
     # Stated by the regulator: last "Updated as on" stamp, and the date it was withdrawn.
     updated_on: Mapped[date | None] = mapped_column(Date)
     withdrawn_on: Mapped[date | None] = mapped_column(Date)
+    # Date of the version whose text we hold. Usually updated_on/issued_date, but for
+    # PDF-only Directions it is the newest dated HTML version, which can be older.
+    text_as_of: Mapped[date | None] = mapped_column(Date)
     url: Mapped[str] = mapped_column(Text)
     pdf_url: Mapped[str | None] = mapped_column(Text)
     pdf_path: Mapped[str | None] = mapped_column(Text)
