@@ -14,6 +14,7 @@ from niyam.rag.verify import PassageRef, Sentence, verify_sentences
 from niyam.retrieval.embeddings import Embedder
 from niyam.retrieval.hybrid import ChunkHit, search_chunks
 from niyam.retrieval.keyword import SearchFilters
+from niyam.retrieval.temporal import expand_with_amendments
 
 log = logging.getLogger(__name__)
 
@@ -75,6 +76,7 @@ def answer_question(
     """Answer with the rules in force on `as_of` (today when not given)."""
     as_of = as_of or date.today()
     hits = search_chunks(session, question, embedder, k=k, filters=SearchFilters(as_of=as_of))
+    hits = expand_with_amendments(session, question, hits, as_of)
     passages = to_passages(session, hits, as_of)
     if not passages:
         return Answer(question, as_of, True, [], [], note="No matching passages were found.")

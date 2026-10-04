@@ -139,16 +139,30 @@ def test_ask_returns_sentences_with_verified_citations(monkeypatch):
     cite = Citation("P1", "not being less than one day", True, 100.0, 7, "13156", 180, 207)
     seen = {}
 
-    def fake_answer(session, question, llm, embedder, as_of=None):
+    def fake_agent(session, question, llm, embedder, as_of=None, grader=None):
         seen.update(question=question, as_of=as_of)
-        return Answer(question, as_of, False, [Sentence("At least one day.", [cite])], [p])
+        answer = Answer(question, as_of, False, [Sentence("At least one day.", [cite])], [p])
+        return {"answer": answer, "as_of_source": "request", "trace": ["as of 2026-01-01"]}
 
-    monkeypatch.setattr(main, "answer_question", fake_answer)
+    monkeypatch.setattr(main, "run_agent", fake_agent)
+    stored = {}
+    monkeypatch.setattr(main, "corpus_version", lambda session: "v1")
+    monkeypatch.setattr(main, "get_cached", lambda *a, **kw: stored.get("answer"))
+    monkeypatch.setattr(
+        main, "put_cached", lambda s, q, as_of, v, answer, qvec=None: stored.update(answer=answer)
+    )
+
+    class FakeEmbedder:
+        def embed_query(self, text):
+            return [0.0] * 384
+
     main.app.dependency_overrides[get_session] = lambda: None
-    main.app.dependency_overrides[main.embedder_dependency] = lambda: object()
+    main.app.dependency_overrides[main.embedder_dependency] = FakeEmbedder
     main.app.dependency_overrides[main.llm_dependency] = lambda: object()
+    main.app.dependency_overrides[main.grader_dependency] = lambda: object()
     try:
         resp = client.post("/ask", json={"question": "cooling-off period?", "as_of": "2026-01-01"})
+        again = client.post("/ask", json={"question": "cooling-off period?", "as_of": "2026-01-01"})
         bad = client.post("/ask", json={"question": "x"})
     finally:
         main.app.dependency_overrides.clear()
@@ -159,6 +173,9 @@ def test_ask_returns_sentences_with_verified_citations(monkeypatch):
     assert c["verified"] and (c["doc_char_start"], c["doc_char_end"]) == (180, 207)
     assert body["passages"][0]["in_force"] is True
     assert seen["as_of"] == date(2026, 1, 1)
+    assert body["as_of_source"] == "request" and body["trace"]
+    assert body["cached"] is False and again.json()["cached"] is True
+    assert again.json()["answer"] == body["answer"]
     assert bad.status_code == 422
 
 

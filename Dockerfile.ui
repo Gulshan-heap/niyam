@@ -1,0 +1,14 @@
+FROM python:3.12-slim
+
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy PATH="/app/.venv/bin:$PATH"
+WORKDIR /app
+
+# Only the UI's own dependencies (streamlit, httpx); it talks to the API over HTTP.
+COPY pyproject.toml uv.lock ./
+RUN uv sync --frozen --no-dev --only-group ui --no-install-project
+
+COPY ui ./ui
+
+EXPOSE 8501
+CMD ["streamlit", "run", "ui/app.py", "--server.port=8501", "--server.address=0.0.0.0"]

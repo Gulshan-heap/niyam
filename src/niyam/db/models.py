@@ -92,7 +92,7 @@ class Relation(Base):
     __table_args__ = (
         UniqueConstraint("src_doc_id", "dst_doc_id", "type"),
         CheckConstraint("type IN ('amends', 'supersedes', 'repeals', 'refers')"),
-        CheckConstraint("method IN ('regex', 'llm', 'annex', 'manual')"),
+        CheckConstraint("method IN ('regex', 'link', 'llm', 'annex', 'manual')"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -153,12 +153,15 @@ class Subscription(Base):
 
 
 class AlertSent(Base):
+    """One alert per (subscription, new document). Keyed on the document rather than the
+    relation, because relations are rebuilt (with new ids) every day."""
+
     __tablename__ = "alerts_sent"
-    __table_args__ = (UniqueConstraint("subscription_id", "relation_id"),)
+    __table_args__ = (UniqueConstraint("subscription_id", "document_id"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
     subscription_id: Mapped[int] = mapped_column(ForeignKey("subscriptions.id", ondelete="CASCADE"))
-    relation_id: Mapped[int] = mapped_column(ForeignKey("relations.id", ondelete="CASCADE"))
+    document_id: Mapped[int] = mapped_column(ForeignKey("documents.id", ondelete="CASCADE"))
     sent_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
@@ -169,6 +172,8 @@ class QueryCache(Base):
     key_hash: Mapped[str] = mapped_column(String(64), unique=True)
     query_embedding: Mapped[list[float] | None] = mapped_column(Vector(EMBEDDING_DIM))
     as_of: Mapped[date | None] = mapped_column(Date)
+    # Documents count + latest arrival: a new document makes older answers stale.
+    corpus_version: Mapped[str | None] = mapped_column(String(64), index=True)
     answer_json: Mapped[dict] = mapped_column(JSONB)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 

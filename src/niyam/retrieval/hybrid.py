@@ -7,6 +7,7 @@ default for hybrid retrieval.
 """
 
 from dataclasses import dataclass
+from datetime import date
 from typing import Literal
 
 from sqlalchemy import and_, func, literal, or_, select, text
@@ -44,6 +45,9 @@ def _filters(f: SearchFilters | None) -> list:
     if f.as_of is not None:
         clauses.append(Chunk.valid_from <= f.as_of)
         clauses.append(or_(Chunk.valid_to.is_(None), Chunk.valid_to > f.as_of))
+        if f.as_of >= date.today():
+            # Marked withdrawn but with no known date: certainly not in force any more.
+            clauses.append(Document.is_withdrawn.is_(False))
     if f.doc_type:
         clauses.append(Document.doc_type == f.doc_type)
     if f.department:

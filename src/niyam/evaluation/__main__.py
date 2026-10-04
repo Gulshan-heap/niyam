@@ -18,7 +18,7 @@ from niyam.evaluation.run import RETRIEVERS, RunConfig, RunReport, run_eval, sav
 from niyam.retrieval.embeddings import get_embedder
 
 DEFAULT_GOLDEN = Path("eval/golden.jsonl")
-COLUMNS = ["hit@1", "hit@5", "hit@10", "recall@10", "mrr"]
+COLUMNS = ["hit@1", "hit@5", "hit@10", "recall@10", "mrr", "in_force@5"]
 
 
 def format_report(report: RunReport, show_misses: bool = False) -> str:

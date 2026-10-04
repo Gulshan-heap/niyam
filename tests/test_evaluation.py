@@ -89,3 +89,19 @@ def test_report_groups_by_tag():
     assert report.summary["hit@1"] == pytest.approx(2 / 3)
     assert report.by_tag()["kyc"]["hit@1"] == 0.5
     assert report.by_tag()["nbfc"]["hit@1"] == 0.0
+
+
+def test_in_force_rate():
+    from datetime import date, timedelta
+
+    from niyam.evaluation.run import in_force_rate
+
+    validity = {
+        "old": (date(2016, 1, 1), date(2025, 12, 4), True),
+        "new": (date(2025, 11, 28), None, False),
+        "gone": (date(2026, 1, 1), None, True),  # withdrawn, date unknown
+    }
+    assert in_force_rate(["old", "new"], date(2020, 1, 1), validity) == 0.5
+    assert in_force_rate(["new", "gone"], date.today(), validity) == 0.5
+    assert in_force_rate(["gone"], date.today() - timedelta(days=1), validity) == 1.0
+    assert in_force_rate([], date.today(), validity) == 1.0

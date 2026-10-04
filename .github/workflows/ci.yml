@@ -1,0 +1,42 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      db:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: niyam
+          POSTGRES_PASSWORD: niyam
+          POSTGRES_DB: niyam
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U niyam -d niyam"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    env:
+      NIYAM_DATABASE_URL: postgresql+psycopg://niyam:niyam@localhost:5432/niyam
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - name: Install
+        run: uv sync --frozen
+      - name: Lint
+        run: |
+          uv run ruff check .
+          uv run ruff format --check .
+      - name: Migrate
+        run: uv run alembic upgrade head
+      - name: Test
+        # Tests use made-up documents and a fake embedder: no RBI data, model or API keys.
+        run: uv run pytest -q

@@ -7,6 +7,7 @@
     python -m niyam.ingest reparse                     # re-derive stored docs from cached HTML
     python -m niyam.ingest index                       # chunk new documents, embed new chunks
     python -m niyam.ingest index --no-embed            # chunk only (seconds); embed later
+    python -m niyam.ingest relations                   # rebuild amends/supersedes/... links
 
 Common options: --match REGEX (filter titles), --limit N, --force (re-fetch known documents).
 
@@ -28,6 +29,7 @@ from niyam.db.session import get_engine
 from niyam.ingest.http import PoliteClient
 from niyam.ingest.index import build_index
 from niyam.ingest.pipeline import IngestStats, RbiIngestor
+from niyam.ingest.relations import extract_all, save_relations
 from niyam.ingest.scrapers.rbi import ListingEntry, RbiScraper
 from niyam.retrieval.embeddings import get_embedder
 
@@ -105,6 +107,7 @@ def main(argv: list[str] | None = None) -> None:
     ids.add_argument("--limit", type=int, help="ingest at most N documents")
     ids.add_argument("--force", action="store_true", help="re-fetch documents already stored")
     sub.add_parser("reparse", help="re-run the parser on cached HTML (no network)")
+    sub.add_parser("relations", help="rebuild relations between documents (no network)")
     index = sub.add_parser("index", help="chunk and embed documents that have no chunks yet")
     index.add_argument("--limit", type=int, help="chunk at most N documents")
     index.add_argument("--no-embed", action="store_true", help="chunk only, skip embeddings")
@@ -124,6 +127,9 @@ def main(argv: list[str] | None = None) -> None:
                 stats = run_recent(ingestor)
             elif args.cmd == "reparse":
                 stats = ingestor.reparse_cached()
+            elif args.cmd == "relations":
+                found = extract_all(session, ingestor.data_dir)
+                stats = f"{save_relations(session, found)} relations saved"
             elif args.cmd == "index":
                 embedder = None if args.no_embed else get_embedder()
                 stats = build_index(session, embedder, limit=args.limit)

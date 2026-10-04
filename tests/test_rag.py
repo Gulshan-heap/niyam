@@ -133,3 +133,11 @@ def test_models_without_a_provider_key_are_skipped(monkeypatch):
     assert llm.has_key("ollama/llama3")  # local providers need no key
     chosen = llm.LiteLLM("gemini/gemini-2.5-flash", ["groq/qwen/qwen3.8-27b"])
     assert chosen.models == ["groq/qwen/qwen3.8-27b"]
+
+
+def test_tracing_is_off_without_langfuse_keys(monkeypatch):
+    from niyam.rag import llm
+
+    monkeypatch.delenv("LANGFUSE_PUBLIC_KEY", raising=False)
+    monkeypatch.delenv("LANGFUSE_SECRET_KEY", raising=False)
+    assert llm.enable_tracing() is False

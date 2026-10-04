@@ -34,9 +34,32 @@ class LLM(Protocol):
     def complete(self, messages: list[dict]) -> str: ...
 
 
+def enable_tracing() -> bool:
+    """Send LLM calls to Langfuse when LANGFUSE_PUBLIC_KEY / LANGFUSE_SECRET_KEY are set
+    (LANGFUSE_HOST for self-hosted) and the langfuse package is installed."""
+    if not (os.environ.get("LANGFUSE_PUBLIC_KEY") and os.environ.get("LANGFUSE_SECRET_KEY")):
+        return False
+    try:
+        import langfuse  # noqa: F401
+        import litellm
+    except ImportError:
+        log.warning("LANGFUSE_* keys are set but the langfuse package is not installed")
+        return False
+    if "langfuse" not in litellm.success_callback:
+        litellm.success_callback.append("langfuse")
+        litellm.failure_callback.append("langfuse")
+    return True
+
+
+def grader_llm() -> "LiteLLM":
+    s = get_settings()
+    return LiteLLM(model=s.llm_grader_model, fallbacks=[s.llm_model])
+
+
 class LiteLLM:
     def __init__(self, model: str | None = None, fallbacks: list[str] | None = None):
         load_dotenv(override=False)  # provider keys may live in .env
+        enable_tracing()
         s = get_settings()
         configured = [
             model or s.llm_model,

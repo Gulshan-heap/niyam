@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, datetime
 from typing import Annotated, Literal
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Response, status
@@ -7,11 +7,13 @@ from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
 from niyam import __version__
-from niyam.db.models import Document
+from niyam.agent.graph import run_agent
+from niyam.db.models import Document, EvalRun, Relation
 from niyam.db.session import get_session
 from niyam.ingest.scrapers.rbi import detail_url
-from niyam.rag.answer import answer_question
-from niyam.rag.llm import LLM, LiteLLM
+from niyam.rag.cache import corpus_version, get_cached, put_cached
+from niyam.rag.dates import resolve_as_of
+from niyam.rag.llm import LLM, LiteLLM, grader_llm
 from niyam.retrieval.embeddings import Embedder, get_embedder
 from niyam.retrieval.hybrid import search_chunks
 from niyam.retrieval.keyword import SearchFilters, keyword_search
@@ -187,10 +189,17 @@ class AskResponse(BaseModel):
     sentences: list[SentenceOut]
     passages: list[PassageOut]
     unsupported: list[str]
+    as_of_source: str  # request | question | today
+    trace: list[str]  # the agent's steps, for transparency and debugging
+    cached: bool = False
 
 
 def llm_dependency() -> LLM:
     return LiteLLM()
+
+
+def grader_dependency() -> LLM:
+    return grader_llm()
 
 
 @app.post("/ask")
@@ -199,10 +208,20 @@ def ask(
     session: Annotated[Session, Depends(get_session)],
     embedder: Annotated[Embedder, Depends(embedder_dependency)],
     llm: Annotated[LLM, Depends(llm_dependency)],
+    grader: Annotated[LLM, Depends(grader_dependency)],
 ) -> AskResponse:
-    """Answer from retrieved passages; every sentence carries verified quotes."""
-    a = answer_question(session, req.question, llm, embedder, as_of=req.as_of)
-    return AskResponse(
+    """Answer with the rules in force on the date asked (given, read from the question, or
+    today). Every sentence carries quotes verified against the source passage. Answers are
+    cached per question, date and corpus version."""
+    as_of, _ = resolve_as_of(req.question, req.as_of)
+    version = corpus_version(session)
+    qvec = embedder.embed_query(req.question)
+    if cached := get_cached(session, req.question, as_of, version, qvec):
+        return AskResponse(**{**cached, "cached": True})
+
+    state = run_agent(session, req.question, llm, embedder, as_of=req.as_of, grader=grader)
+    a = state["answer"]
+    response = AskResponse(
         question=a.question,
         as_of=a.as_of,
         abstained=a.abstained,
@@ -238,7 +257,11 @@ def ask(
             for p in a.passages
         ],
         unsupported=a.unsupported,
+        as_of_source=state["as_of_source"],
+        trace=state["trace"],
     )
+    put_cached(session, req.question, as_of, version, response.model_dump(mode="json"), qvec)
+    return response
 
 
 class DocumentOut(BaseModel):
@@ -267,3 +290,101 @@ def get_document(source_id: str, session: Annotated[Session, Depends(get_session
     if doc is None:
         raise HTTPException(status_code=404, detail=f"no document {source_id}")
     return DocumentOut.model_validate(doc, from_attributes=True)
+
+
+class RelatedDoc(BaseModel):
+    source_id: str | None
+    title: str
+    issued_date: date
+    is_withdrawn: bool
+    url: str
+    method: str
+    evidence: str | None
+
+
+class TimelineOut(BaseModel):
+    source_id: str | None
+    title: str
+    issued_date: date
+    valid_from: date | None
+    valid_to: date | None
+    is_withdrawn: bool
+    amended_by: list[RelatedDoc]  # newest first
+    amends: list[RelatedDoc]
+    superseded_by: list[RelatedDoc]
+    supersedes: list[RelatedDoc]
+
+
+@app.get("/documents/{source_id}/timeline")
+def document_timeline(
+    source_id: str, session: Annotated[Session, Depends(get_session)]
+) -> TimelineOut:
+    """How a document fits in the amendment chain: what changed it, and what it changed."""
+    doc = session.scalar(select(Document).where(Document.source_id == source_id))
+    if doc is None:
+        raise HTTPException(status_code=404, detail=f"no document {source_id}")
+
+    def related(direction: str, types: tuple[str, ...]) -> list[RelatedDoc]:
+        other_id = Relation.src_doc_id if direction == "in" else Relation.dst_doc_id
+        this_id = Relation.dst_doc_id if direction == "in" else Relation.src_doc_id
+        rows = session.execute(
+            select(Document, Relation)
+            .join(Relation, other_id == Document.id)
+            .where(this_id == doc.id, Relation.type.in_(types))
+            .order_by(Document.issued_date.desc())
+        ).all()
+        return [
+            RelatedDoc(
+                source_id=d.source_id,
+                title=d.title,
+                issued_date=d.issued_date,
+                is_withdrawn=d.is_withdrawn,
+                url=d.url,
+                method=r.method,
+                evidence=r.evidence_text,
+            )
+            for d, r in rows
+        ]
+
+    return TimelineOut(
+        source_id=doc.source_id,
+        title=doc.title,
+        issued_date=doc.issued_date,
+        valid_from=doc.valid_from,
+        valid_to=doc.valid_to,
+        is_withdrawn=doc.is_withdrawn,
+        amended_by=related("in", ("amends",)),
+        amends=related("out", ("amends",)),
+        superseded_by=related("in", ("supersedes", "repeals")),
+        supersedes=related("out", ("supersedes", "repeals")),
+    )
+
+
+class EvalRunOut(BaseModel):
+    id: int
+    created_at: datetime
+    git_sha: str | None
+    git_dirty: bool | None
+    retriever: str | None
+    apply_as_of: bool | None
+    questions: int | None
+    summary: dict[str, float]
+
+
+@app.get("/eval/runs")
+def eval_runs(session: Annotated[Session, Depends(get_session)]) -> list[EvalRunOut]:
+    """Saved evaluation runs, oldest first, with their summary metrics."""
+    runs = session.scalars(select(EvalRun).order_by(EvalRun.id)).all()
+    return [
+        EvalRunOut(
+            id=r.id,
+            created_at=r.created_at,
+            git_sha=r.git_sha,
+            git_dirty=(r.config_json or {}).get("git_dirty"),
+            retriever=(r.config_json or {}).get("retriever"),
+            apply_as_of=(r.config_json or {}).get("apply_as_of"),
+            questions=(r.config_json or {}).get("questions"),
+            summary=(r.config_json or {}).get("summary") or {},
+        )
+        for r in runs
+    ]

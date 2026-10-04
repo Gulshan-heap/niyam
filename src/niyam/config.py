@@ -1,5 +1,6 @@
 from functools import lru_cache
 
+from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -20,8 +21,16 @@ class Settings(BaseSettings):
     # is read from the environment by LiteLLM itself.
     llm_model: str = "groq/openai/gpt-oss-120b"
     llm_fallbacks: list[str] = ["groq/qwen/qwen3.8-27b", "gemini/gemini-2.5-flash"]
+    # Passage grading in the agent: a smaller model with its own rate limit.
+    llm_grader_model: str = "groq/qwen/qwen3.8-27b"
     llm_temperature: float = 0.0
     llm_timeout_seconds: float = 60.0
+
+    # Telegram bot and change alerts; both stay off without a token (from @BotFather).
+    telegram_bot_token: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("NIYAM_TELEGRAM_BOT_TOKEN", "TELEGRAM_BOT_TOKEN"),
+    )
 
     # Daily ingestion worker (India time). RBI posts during the working day.
     ingest_hour: int = 20
