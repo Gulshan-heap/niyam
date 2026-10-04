@@ -183,7 +183,6 @@ class RbiIngestor:
                 continue
             self.session.commit()
             stats.add(outcome)
-            log.info("RBI %s %s: %s", entry.rbi_id, outcome, entry.title[:80])
         if from_md_index:
             # Documents first seen in a monthly listing may only now be known to be MDs.
             self.session.execute(
@@ -265,6 +264,7 @@ class RbiIngestor:
         )
         if outcome == "updated" and old_html and old_html != html and cached is not None:
             self._archive(cached, old_html)
+        log.info("RBI %s %s: %s", entry.rbi_id, outcome, page.title[:80])
         return outcome
 
     def _latest_version(self, current: DetailPage) -> tuple[DetailPage, Path | None, date]:
