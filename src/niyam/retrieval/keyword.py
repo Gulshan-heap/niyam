@@ -79,12 +79,13 @@ def keyword_search(
     k: int = 10,
     filters: SearchFilters | None = None,
     mode: Mode = "any",
+    normalization: int = RANK_NORMALIZATION,
 ) -> list[SearchHit]:
     tsq = build_tsquery(query, mode)
     if session.scalar(select(func.numnode(tsq))) == 0:
         return []  # only stopwords / punctuation
 
-    score = func.ts_rank_cd(Document.tsv, tsq, literal(RANK_NORMALIZATION)).label("score")
+    score = func.ts_rank_cd(Document.tsv, tsq, literal(normalization)).label("score")
     ranked = (
         select(Document.id, score)
         .where(Document.tsv.op("@@")(tsq), and_(*_filter_clauses(filters or SearchFilters())))
