@@ -17,6 +17,8 @@ dependencies = [
     "apscheduler>=3.10,<4",
     "tzdata>=2024.1",
     "fastembed>=0.4",
+    "litellm>=1.50",
+    "rapidfuzz>=3.9",
 ]
 
 [dependency-groups]

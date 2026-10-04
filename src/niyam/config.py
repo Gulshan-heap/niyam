@@ -16,6 +16,13 @@ class Settings(BaseSettings):
     request_interval_seconds: float = 2.0
     http_timeout_seconds: float = 60.0
 
+    # Answer generation through LiteLLM; the provider key (GEMINI_API_KEY, GROQ_API_KEY, ...)
+    # is read from the environment by LiteLLM itself.
+    llm_model: str = "groq/openai/gpt-oss-120b"
+    llm_fallbacks: list[str] = ["groq/qwen/qwen3.8-27b", "gemini/gemini-2.5-flash"]
+    llm_temperature: float = 0.0
+    llm_timeout_seconds: float = 60.0
+
     # Daily ingestion worker (India time). RBI posts during the working day.
     ingest_hour: int = 20
     ingest_minute: int = 0
