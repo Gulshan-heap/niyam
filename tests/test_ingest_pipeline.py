@@ -43,12 +43,22 @@ def session():
     conn.close()
 
 
+def _unique(rbi_id: int, html: str) -> str:
+    """Add a marker paragraph so fixture text never equals the real page stored in a dev
+    database, which the pipeline would report as a duplicate."""
+    row = '<tr class="tablecontent2"><td>'
+    return html.replace(row, f"{row}<p>[test fixture {rbi_id}]</p>", 1)
+
+
 class FakeScraper:
     """Serves fixture HTML and writes it to the cache dir like PoliteClient would."""
 
     def __init__(self, cache_dir: Path):
         self.client = SimpleNamespace(cache_dir=cache_dir)
-        self.pages = {i: (FIXTURES / name).read_text(encoding="utf-8") for i, name in PAGES.items()}
+        self.pages = {
+            i: _unique(i, (FIXTURES / name).read_text(encoding="utf-8"))
+            for i, name in PAGES.items()
+        }
         self.fetched: list[tuple[int, bool]] = []
         self.errors: dict[int, Exception] = {}
 
@@ -99,7 +109,7 @@ def test_new_document_fields(ingestor, session):
     assert d.valid_to is None
     assert d.url.endswith(f"NotificationUser.aspx?Id={AMENDMENT}&Mode=0")
     assert d.source_path == f"raw/rbi/notifications/{AMENDMENT}.html"
-    assert d.raw_text.startswith("RBI/2026-27/278")
+    assert "RBI/2026-27/278\nDOR.HOL.REC.No.238" in d.raw_text
     assert len(d.content_hash) == 64
     assert d.fetched_at is not None
 
