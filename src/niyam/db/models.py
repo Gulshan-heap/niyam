@@ -27,6 +27,10 @@ from sqlalchemy.dialects.postgresql import JSONB, TSVECTOR
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 EMBEDDING_DIM = 384
+DOCUMENT_TSV = (
+    "setweight(to_tsvector('english', coalesce(title, '')), 'A') || "
+    "setweight(to_tsvector('english', coalesce(raw_text, '')), 'B')"
+)
 
 
 class Base(DeclarativeBase):
@@ -38,6 +42,7 @@ class Document(Base):
     __table_args__ = (
         UniqueConstraint("regulator", "url"),
         UniqueConstraint("regulator", "source_id"),
+        Index("ix_documents_tsv", "tsv", postgresql_using="gin"),
         CheckConstraint("regulator IN ('RBI', 'SEBI')"),
         CheckConstraint("doc_type IN ('circular', 'master_direction', 'notification')"),
     )
@@ -65,6 +70,8 @@ class Document(Base):
     pdf_path: Mapped[str | None] = mapped_column(Text)
     source_path: Mapped[str | None] = mapped_column(Text)  # cached HTML, relative to data_dir
     raw_text: Mapped[str | None] = mapped_column(Text)
+    # Document-level keyword search: title matches outrank body matches.
+    tsv: Mapped[str] = mapped_column(TSVECTOR, Computed(DOCUMENT_TSV, persisted=True))
     content_hash: Mapped[str | None] = mapped_column(String(64), unique=True)
     fetched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
