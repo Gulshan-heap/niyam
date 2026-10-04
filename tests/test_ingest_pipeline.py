@@ -150,6 +150,7 @@ def test_withdrawn_master_direction(ingestor, session):
     d = get_doc(session, KYC_MD)
     assert d.doc_type == "master_direction"
     assert d.updated_on == date(2025, 8, 14)
+    assert d.is_withdrawn
     assert d.withdrawn_on == d.valid_to == date(2025, 12, 4)
     assert d.valid_from == date(2016, 2, 25)
 

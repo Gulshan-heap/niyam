@@ -95,6 +95,7 @@ class DetailPage:
     department: str | None
     issued_date: date | None
     updated_on: date | None
+    is_withdrawn: bool
     withdrawn_on: date | None
     pdf_url: str | None
     blocks: list[str]
@@ -321,11 +322,16 @@ def parse_detail(html: str, rbi_id: int) -> DetailPage:
         a.decompose()
     blocks = html_to_blocks(content)
 
+    # RBI reuses one "Withdrawn<DDMMYYYY>" watermark image, so the page being withdrawn is
+    # reliable but the date is not: drop it when it precedes the document itself.
+    issued = _issued_date(blocks)
     withdrawn_on = None
     m = WITHDRAWN_RE.search(str(content))
     if m:
         dd, mm, yyyy = (int(g) for g in m.groups())
         withdrawn_on = date(yyyy, mm, dd)
+        if issued and withdrawn_on < issued:
+            withdrawn_on = None
 
     linked: list[int] = []
     for a in content.find_all("a", href=True):
@@ -341,8 +347,9 @@ def parse_detail(html: str, rbi_id: int) -> DetailPage:
         rbi_no=rbi_no,
         ref_no=ref_no,
         department=_department(ref_no, head),
-        issued_date=_issued_date(blocks),
+        issued_date=issued,
         updated_on=_latest_updated(raw_title + "\n" + head),
+        is_withdrawn=m is not None,
         withdrawn_on=withdrawn_on,
         pdf_url=pdf["href"] if pdf else None,
         blocks=blocks,

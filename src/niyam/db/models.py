@@ -10,6 +10,7 @@ from datetime import date, datetime
 from pgvector.sqlalchemy import Vector
 from sqlalchemy import (
     BigInteger,
+    Boolean,
     CheckConstraint,
     Computed,
     Date,
@@ -21,6 +22,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    false,
     func,
 )
 from sqlalchemy.dialects.postgresql import JSONB, TSVECTOR
@@ -59,8 +61,10 @@ class Document(Base):
     effective_from: Mapped[date | None] = mapped_column(Date)
     valid_from: Mapped[date | None] = mapped_column(Date)
     valid_to: Mapped[date | None] = mapped_column(Date)
-    # Stated by the regulator: last "Updated as on" stamp, and the date it was withdrawn.
+    # Stated by the regulator: last "Updated as on" stamp, and withdrawal. RBI marks withdrawn
+    # pages reliably, but the date (from the watermark image name) can be missing or wrong.
     updated_on: Mapped[date | None] = mapped_column(Date)
+    is_withdrawn: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
     withdrawn_on: Mapped[date | None] = mapped_column(Date)
     # Date of the version whose text we hold. Usually updated_on/issued_date, but for
     # PDF-only Directions it is the newest dated HTML version, which can be older.

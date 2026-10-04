@@ -17,6 +17,7 @@ HIT = SearchHit(
     doc_type="master_direction",
     department="Department of Regulation",
     issued_date=date(2025, 11, 28),
+    is_withdrawn=False,
     withdrawn_on=None,
     url="https://www.rbi.org.in/Scripts/NotificationUser.aspx?Id=13090&Mode=0",
     score=33.7,

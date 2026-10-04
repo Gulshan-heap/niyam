@@ -42,6 +42,7 @@ class SearchHit:
     doc_type: str
     department: str | None
     issued_date: date
+    is_withdrawn: bool
     withdrawn_on: date | None
     url: str
     score: float
@@ -107,6 +108,7 @@ def keyword_search(
             doc_type=d.doc_type,
             department=d.department,
             issued_date=d.issued_date,
+            is_withdrawn=d.is_withdrawn,
             withdrawn_on=d.withdrawn_on,
             url=d.url,
             score=float(s),

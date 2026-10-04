@@ -75,7 +75,7 @@ def test_detail_recent_amendment():
     assert d.department == "Department of Regulation"
     assert d.issued_date == date(2026, 10, 1)
     assert d.updated_on is None
-    assert d.withdrawn_on is None
+    assert not d.is_withdrawn and d.withdrawn_on is None
     assert d.linked_ids == [13086]  # the Master Direction it amends
     assert "4. These Directions shall come into force with immediate effect." in d.blocks
     assert not is_master_direction(d.title)
@@ -89,6 +89,7 @@ def test_detail_withdrawn_master_direction():
     assert d.department == "Department of Banking Regulation"
     assert d.issued_date == date(2016, 2, 25)
     assert d.updated_on == date(2025, 8, 14)  # latest of many "Updated as on" stamps
+    assert d.is_withdrawn
     assert d.withdrawn_on == date(2025, 12, 4)  # from the Withdrawn04122025.jpg watermark
     assert is_master_direction(d.title)
     # inline footnote markers are dropped, the text around them is kept
@@ -245,3 +246,16 @@ def test_dated_version_page_has_full_text():
     assert d.department == "Department of Regulation"
     assert d.issued_date == date(2025, 11, 28)
     assert "Table of Contents" in d.text
+
+
+def test_withdrawn_watermark_dated_before_issue_keeps_flag_but_drops_date():
+    # RBI reuses one watermark image, so a Feb 2026 amendment can carry "Withdrawn04122025".
+    html = fixture("detail_13722.html").replace(
+        '<tr class="tablecontent2"><td>',
+        '<tr class="tablecontent2"><td>'
+        '<table style="background: url(images/Withdrawn04122025.jpg)"><tr><td></td></tr></table>',
+        1,
+    )
+    d = parse_detail(html, 13722)  # issued October 1, 2026
+    assert d.is_withdrawn
+    assert d.withdrawn_on is None

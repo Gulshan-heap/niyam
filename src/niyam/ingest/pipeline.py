@@ -108,6 +108,7 @@ def upsert_document(
         "doc_type": doc_type_for(page, is_md),
         "issued_date": issued,
         "updated_on": page.updated_on,
+        "is_withdrawn": page.is_withdrawn,
         "withdrawn_on": page.withdrawn_on,
         "text_as_of": text_as_of or page.updated_on or issued,
         # Initial validity window from what the page states; the temporal layer refines it.

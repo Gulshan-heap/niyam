@@ -40,6 +40,7 @@ class SearchResult(BaseModel):
     doc_type: str
     department: str | None
     issued_date: date
+    is_withdrawn: bool
     withdrawn_on: date | None
     url: str
     score: float
