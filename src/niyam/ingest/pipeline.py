@@ -30,6 +30,7 @@ log = logging.getLogger(__name__)
 
 REGULATOR = "RBI"
 VERSION_FILE_RE = re.compile(r"-v\d+\.html$")  # cached dated version, e.g. 13136-v336.html
+MAX_VERSIONS_TRIED = 4
 
 
 @dataclass
@@ -260,18 +261,25 @@ class RbiIngestor:
         return outcome
 
     def _latest_version(self, current: DetailPage) -> tuple[DetailPage, Path | None, date]:
-        """The current page is PDF-only: take the text of the newest dated version, but keep
-        the current page's title, "Updated as on" stamp and PDF link."""
-        latest = self.scraper.fetch_latest_version(current.rbi_id)
-        if latest is None:
-            raise ValueError(f"RBI {current.rbi_id}: PDF-only and no previous versions listed")
-        html, path, as_of = latest
-        page = parse_detail(html, current.rbi_id)
-        page.title = current.title or page.title
-        page.updated_on = current.updated_on
-        page.pdf_url = current.pdf_url or page.pdf_url
-        log.info("RBI %s is PDF-only; using text of version dated %s", current.rbi_id, as_of)
-        return page, path, as_of
+        """The current page is PDF-only: take the text of the newest dated version that has
+        HTML text (recent versions can be PDF-only too), but keep the current page's title,
+        "Updated as on" stamp and PDF link."""
+        versions = self.scraper.list_versions(current.rbi_id)
+        for version in versions[:MAX_VERSIONS_TRIED]:
+            html, path = self.scraper.fetch_version(current.rbi_id, version)
+            page = parse_detail(html, current.rbi_id)
+            if not page.has_text:
+                continue
+            page.title = current.title or page.title
+            page.updated_on = current.updated_on
+            page.pdf_url = current.pdf_url or page.pdf_url
+            log.info(
+                "RBI %s is PDF-only; using text of version dated %s", current.rbi_id, version.as_of
+            )
+            return page, path, version.as_of
+        raise ValueError(
+            f"RBI {current.rbi_id}: PDF-only, and none of {len(versions)} versions has HTML text"
+        )
 
     def _cache_file(self, rbi_id: int) -> Path | None:
         root = self.scraper.client.cache_dir

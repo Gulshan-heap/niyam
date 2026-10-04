@@ -17,7 +17,7 @@ from niyam.db.models import EMBEDDING_DIM, Chunk, Document
 from niyam.db.session import get_engine
 from niyam.ingest.http import BlockedError, FetchError
 from niyam.ingest.pipeline import RbiIngestor
-from niyam.ingest.scrapers.rbi import ListingEntry
+from niyam.ingest.scrapers.rbi import ListingEntry, Version
 
 FIXTURES = Path(__file__).parent / "fixtures" / "rbi"
 # Test ids far above real RBI ids so a dev database with real data never collides.
@@ -60,7 +60,8 @@ class FakeScraper:
             i: _unique(i, (FIXTURES / name).read_text(encoding="utf-8"))
             for i, name in PAGES.items()
         }
-        self.versions = {PDF_ONLY: ("version_13136_h336.html", 336, date(2025, 11, 28))}
+        # rbi_id -> [(fixture, hist_id, as_of)], newest first
+        self.versions = {PDF_ONLY: [("version_13136_h336.html", 336, date(2025, 11, 28))]}
         self.fetched: list[tuple[int, bool]] = []
         self.errors: dict[int, Exception] = {}
 
@@ -73,15 +74,19 @@ class FakeScraper:
         path.write_text(self.pages[rbi_id], encoding="utf-8")
         return self.pages[rbi_id], path
 
-    def fetch_latest_version(self, rbi_id: int):
-        if rbi_id not in self.versions:
-            return None
-        name, hist_id, as_of = self.versions[rbi_id]
+    def list_versions(self, rbi_id: int) -> list[Version]:
+        return [
+            Version(hist_id=h, as_of=as_of, url=f"v/{rbi_id}/{h}")
+            for _, h, as_of in self.versions.get(rbi_id, [])
+        ]
+
+    def fetch_version(self, rbi_id: int, version: Version):
+        name = next(n for n, h, _ in self.versions[rbi_id] if h == version.hist_id)
         html = _unique(rbi_id, (FIXTURES / name).read_text(encoding="utf-8"))
-        path = self.client.cache_dir / f"rbi/notifications/{rbi_id}-v{hist_id}.html"
+        path = self.client.cache_dir / f"rbi/notifications/{rbi_id}-v{version.hist_id}.html"
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(html, encoding="utf-8")
-        return html, path, as_of
+        return html, path
 
 
 @pytest.fixture
@@ -250,6 +255,20 @@ def test_pdf_only_direction_takes_text_from_latest_version(ingestor, session):
     assert d.updated_on == date(2026, 10, 1)  # RBI's current stamp, from the PDF-only page
     assert d.text_as_of == date(2025, 11, 28)  # but the text we hold is this version's
     assert d.source_path == f"raw/rbi/notifications/{PDF_ONLY}-v336.html"
+
+
+def test_pdf_only_skips_newer_versions_that_are_pdf_only_too(ingestor, scraper, session):
+    scraper.versions[PDF_ONLY].insert(0, ("detail_13136_pdf_only.html", 400, date(2026, 7, 1)))
+    stats = ingestor.ingest([entry(PDF_ONLY, updated_on=date(2026, 10, 1))], from_md_index=True)
+    assert stats.new == 1
+    d = get_doc(session, PDF_ONLY)
+    assert d.text_as_of == date(2025, 11, 28)
+    assert d.source_path.endswith("-v336.html")
+
+
+def test_pdf_only_when_no_version_has_text_fails(ingestor, scraper):
+    scraper.versions[PDF_ONLY] = [("detail_13136_pdf_only.html", 400, date(2026, 7, 1))]
+    assert ingestor.ingest([entry(PDF_ONLY)]).failed == 1
 
 
 def test_pdf_only_without_versions_fails(ingestor, scraper, session):

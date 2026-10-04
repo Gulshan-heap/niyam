@@ -394,17 +394,16 @@ class RbiScraper:
         html = self.client.get_text(detail_url(rbi_id), cache_key=key, refresh=refresh)
         return html, self._path(key)
 
-    def fetch_latest_version(self, rbi_id: int) -> tuple[str, Path | None, date] | None:
-        """Newest dated version, for current pages that are PDF-only."""
+    def list_versions(self, rbi_id: int) -> list[Version]:
+        """Dated previous versions of a document, newest first."""
         listing = self.client.get_text(
             f"{VERSIONS_URL}?id={rbi_id}", cache_key=f"rbi/versions/{rbi_id}.html", refresh=True
         )
-        versions = parse_versions(listing)
-        if not versions:
-            return None
-        v = versions[0]
-        key = f"rbi/notifications/{rbi_id}-v{v.hist_id}.html"  # dated versions never change
-        return self.client.get_text(v.url, cache_key=key), self._path(key), v.as_of
+        return parse_versions(listing)
+
+    def fetch_version(self, rbi_id: int, version: Version) -> tuple[str, Path | None]:
+        key = f"rbi/notifications/{rbi_id}-v{version.hist_id}.html"  # dated versions never change
+        return self.client.get_text(version.url, cache_key=key), self._path(key)
 
     def _path(self, key: str) -> Path | None:
         return self.client.cache_dir / key if self.client.cache_dir else None
