@@ -58,6 +58,8 @@ def test_master_direction_index_tracks_sections_and_dates():
     # "(Updated as on ...)" is stripped from titles
     pd = next(e for e in entries if e.rbi_id == 10476)
     assert pd.title == "Master Direction – Operational Guidelines for Primary Dealers"
+    assert pd.updated_on == date(2018, 11, 22)
+    assert first.updated_on is None
     assert {e.section for e in entries} >= {"Banker to Governments and Banks"}
 
 

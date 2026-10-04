@@ -70,6 +70,7 @@ class ListingEntry:
     listed_date: date | None
     pdf_url: str | None
     section: str | None = None  # Master Directions index groups entries by sector
+    updated_on: date | None = None  # "(Updated as on ...)" in the title, if any
 
 
 @dataclass
@@ -162,13 +163,15 @@ def parse_listing(html: str) -> list[ListingEntry]:
         rbi_id = int(m.group(1))
         seen.add(rbi_id)
         pdf = row.find("a", href=re.compile(r"\.pdf$", re.I))
+        raw_title = link.get_text(" ")
         entries.append(
             ListingEntry(
                 rbi_id=rbi_id,
-                title=_strip_updated(link.get_text(" ")),
+                title=_strip_updated(raw_title),
                 listed_date=current_date,
                 pdf_url=pdf["href"] if pdf else None,
                 section=section,
+                updated_on=_latest_updated(raw_title),
             )
         )
     return entries
