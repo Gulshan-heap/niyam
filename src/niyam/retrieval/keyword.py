@@ -18,9 +18,11 @@ from niyam.db.models import Document
 
 Mode = Literal["any", "all"]
 
-# ts_rank_cd normalization 1 divides by 1 + log(document length), so long Master
-# Directions don't win just by repeating terms.
-RANK_NORMALIZATION = 1
+# ts_rank_cd normalization flags: 1 divides by 1 + log(document length), so long Master
+# Directions don't win just by repeating common words; 4 divides by the mean harmonic
+# distance between matched extents, rewarding query terms that appear close together.
+# 1|4 was best on the golden set (MRR 0.65 vs 0.41 for 1 alone; see eval_runs).
+RANK_NORMALIZATION = 5
 HEADLINE_OPTIONS = "MaxFragments=2, MaxWords=30, MinWords=12, StartSel=«, StopSel=»"
 
 
