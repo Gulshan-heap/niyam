@@ -2,7 +2,6 @@
 name = "niyam"
 version = "0.1.0"
 description = "Temporal regulation tracker: agentic RAG over RBI/SEBI circulars that knows which rule is in force on any date."
-readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.115",
@@ -12,12 +11,15 @@ dependencies = [
     "alembic>=1.13",
     "pgvector>=0.3",
     "pydantic-settings>=2.4",
+    "httpx>=0.27",
+    "beautifulsoup4>=4.12",
+    "lxml>=5.3",
+    "apscheduler>=3.10,<4",
 ]
 
 [dependency-groups]
 dev = [
     "pytest>=8",
-    "httpx>=0.27",
     "ruff>=0.6",
     "pre-commit>=3.8",
 ]
