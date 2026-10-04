@@ -16,6 +16,7 @@ dependencies = [
     "lxml>=5.3",
     "apscheduler>=3.10,<4",
     "tzdata>=2024.1",
+    "fastembed>=0.4",
 ]
 
 [dependency-groups]

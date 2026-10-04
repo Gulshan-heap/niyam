@@ -138,6 +138,13 @@ def upsert_document(
     if fetched:
         doc.fetched_at = datetime.now(UTC)
     session.flush()
+    if outcome == "updated" and not text_changed:
+        # Chunks copy the validity window so retrieval can filter without a join.
+        session.execute(
+            update(Chunk)
+            .where(Chunk.doc_id == doc.id)
+            .values(valid_from=doc.valid_from, valid_to=doc.valid_to)
+        )
     return outcome
 
 

@@ -202,7 +202,8 @@ def test_metadata_refreshes_when_text_is_unchanged(ingestor, scraper, session):
     assert stats.updated == 1
     session.refresh(d)
     assert d.department == "Department of Regulation"
-    assert len(session.scalars(select(Chunk).where(Chunk.doc_id == d.id)).all()) == 1  # kept
+    (chunk,) = session.scalars(select(Chunk).where(Chunk.doc_id == d.id)).all()  # kept
+    assert chunk.valid_from == d.valid_from  # validity copied onto the chunk
 
 
 def test_reparse_uses_cache_without_fetching(ingestor, scraper, session):

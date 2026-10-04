@@ -29,6 +29,10 @@ from sqlalchemy.dialects.postgresql import JSONB, TSVECTOR
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 EMBEDDING_DIM = 384
+CHUNK_TSV = (
+    "setweight(to_tsvector('english', coalesce(context, '')), 'A') || "
+    "setweight(to_tsvector('english', text), 'B')"
+)
 DOCUMENT_TSV = (
     "setweight(to_tsvector('english', coalesce(title, '')), 'A') || "
     "setweight(to_tsvector('english', coalesce(raw_text, '')), 'B')"
@@ -119,16 +123,17 @@ class Chunk(Base):
     doc_id: Mapped[int] = mapped_column(ForeignKey("documents.id", ondelete="CASCADE"), index=True)
     ord: Mapped[int] = mapped_column(Integer)
     text: Mapped[str] = mapped_column(Text)
-    section_ref: Mapped[str | None] = mapped_column(String(64))
+    # Heading the chunk sits under, e.g. "Chapter III - Digital Lending > 11. Cooling-off period".
+    section_ref: Mapped[str | None] = mapped_column(Text)
+    # Document title + heading: weighted into keyword search and prefixed when embedding.
+    context: Mapped[str | None] = mapped_column(Text)
     page: Mapped[int | None] = mapped_column(Integer)
     char_start: Mapped[int] = mapped_column(Integer)
     char_end: Mapped[int] = mapped_column(Integer)
     # [{"page": int, "bbox": [x0, y0, x1, y1]}, ...] used to highlight citations in the PDF.
     bboxes: Mapped[list | None] = mapped_column(JSONB)
     embedding: Mapped[list[float] | None] = mapped_column(Vector(EMBEDDING_DIM))
-    tsv: Mapped[str] = mapped_column(
-        TSVECTOR, Computed("to_tsvector('english', text)", persisted=True)
-    )
+    tsv: Mapped[str] = mapped_column(TSVECTOR, Computed(CHUNK_TSV, persisted=True))
     valid_from: Mapped[date | None] = mapped_column(Date)
     valid_to: Mapped[date | None] = mapped_column(Date)
 
