@@ -15,6 +15,7 @@ dependencies = [
     "beautifulsoup4>=4.12",
     "lxml>=5.3",
     "apscheduler>=3.10,<4",
+    "tzdata>=2024.1",
 ]
 
 [dependency-groups]

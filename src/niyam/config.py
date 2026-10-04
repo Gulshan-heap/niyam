@@ -16,6 +16,11 @@ class Settings(BaseSettings):
     request_interval_seconds: float = 2.0
     http_timeout_seconds: float = 60.0
 
+    # Daily ingestion worker (India time). RBI posts during the working day.
+    ingest_hour: int = 20
+    ingest_minute: int = 0
+    ingest_on_start: bool = True
+
 
 @lru_cache
 def get_settings() -> Settings:
