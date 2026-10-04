@@ -30,8 +30,13 @@ _MONTHS = (
     "|Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec"
 )
 DATE_RE = re.compile(rf"\b({_MONTHS})\.?\s+(\d{{1,2}}),?\s+(\d{{4}})\b")
+LETTERHEAD_DATE_RE = re.compile(  # "Mumbai, the 2nd December, 2024"
+    rf"\b(?:Mumbai|New Delhi),?\s+(?:the\s+)?(\d{{1,2}})(?:st|nd|rd|th)?\s+"
+    rf"({_MONTHS})\.?,?\s+(\d{{4}})",
+    re.I,
+)
 # Only the "(Updated as on <date>)" stamps RBI puts in titles, not "updated as on" in prose.
-UPDATED_RE = re.compile(rf"\(\s*Updated as on\s+({_MONTHS})\.?\s+(\d{{1,2}}),?\s+(\d{{4}})")
+UPDATED_RE = re.compile(rf"\(\s*Updated as on\s+({_MONTHS})\.?\s+(\d{{1,2}}),?\s+(\d{{4}})", re.I)
 RBI_NO_RE = re.compile(r"\bRBI/(?:[A-Za-z]+/)?\d{4}-\d{2,4}/\d+")
 WITHDRAWN_RE = re.compile(r"Withdrawn(\d{2})(\d{2})(\d{4})\.jpg", re.I)
 DOC_LINK_RE = re.compile(r"(?:NotificationUser|BS_ViewMasDirections)\.aspx\?id=(\d+)", re.I)
@@ -138,7 +143,7 @@ def _clean(s: str) -> str:
 
 
 def _strip_updated(title: str) -> str:
-    return _clean(re.sub(r"\(\s*Updated as on[^)]*\)", "", title))
+    return _clean(re.sub(r"\(\s*Updated as on[^)]*\)", "", title, flags=re.I))
 
 
 def _soup(html: str) -> BeautifulSoup:
@@ -273,6 +278,10 @@ def _numbers(blocks: list[str]) -> tuple[str | None, str | None]:
     for block in blocks[:8]:
         if block.startswith("Notification No"):
             return None, block.split("\n")[0]
+        # FEMA regulations: "No. FEMA.396(3)/2024-RB. — In exercise of the powers ..."
+        m = re.match(r"No\.\s*(FEMA.*?-RB)\b", block)
+        if m:
+            return None, f"Notification No. {m.group(1)}"
     for block in blocks[:5]:
         m = RBI_NO_RE.search(block)
         if not m:
@@ -287,16 +296,27 @@ def _numbers(blocks: list[str]) -> tuple[str | None, str | None]:
 
 
 def _issued_date(blocks: list[str]) -> date | None:
-    """The date line near the top (right-aligned on the page), not a date in the body."""
+    """The date line near the top (right-aligned on the page), not a date in the body.
+
+    FEMA notifications instead date the letterhead: "Mumbai, the 2nd December, 2024".
+    """
     for block in blocks[:8]:
         first = block.split("\n")[0]
         if DATE_RE.fullmatch(first.strip(" .")):
             return parse_date(first)
+    for block in blocks[:3]:
+        for line in block.split("\n"):
+            m = LETTERHEAD_DATE_RE.search(line)
+            if m:
+                return parse_date(f"{m.group(2).capitalize()} {m.group(1)}, {m.group(3)}")
     return None
 
 
 def _latest_updated(text: str) -> date | None:
-    dates = [parse_date(" ".join(m.groups())) for m in UPDATED_RE.finditer(text)]
+    dates = [
+        parse_date(f"{m.group(1).capitalize()} {m.group(2)} {m.group(3)}")
+        for m in UPDATED_RE.finditer(text)
+    ]
     dates = [d for d in dates if d]
     return max(dates) if dates else None
 

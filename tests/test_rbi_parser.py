@@ -8,6 +8,9 @@ from bs4 import BeautifulSoup
 
 from niyam.ingest.scrapers.rbi import (
     _department,
+    _issued_date,
+    _latest_updated,
+    _numbers,
     detail_url,
     html_to_blocks,
     is_master_direction,
@@ -259,3 +262,25 @@ def test_withdrawn_watermark_dated_before_issue_keeps_flag_but_drops_date():
     d = parse_detail(html, 13722)  # issued October 1, 2026
     assert d.is_withdrawn
     assert d.withdrawn_on is None
+
+
+def test_fema_regulation_letterhead_date_and_number():
+    blocks = [
+        "RESERVE BANK OF INDIA\n(Financial Markets Regulation Department)\nNOTIFICATION\n"
+        "Mumbai, the 2nd August, 2024",
+        "Foreign Exchange Management (Debt Instruments) (Third Amendment) Regulations, 2024",
+        "No. FEMA.396(3)/2024-RB. — In exercise of the powers conferred by section 6",
+    ]
+    assert _issued_date(blocks) == date(2024, 8, 2)
+    assert _numbers(blocks) == (None, "Notification No. FEMA.396(3)/2024-RB")
+    assert _issued_date(["MUMBAI, the 16th october 2023"]) == date(2023, 10, 16)
+
+
+def test_lowercase_updated_stamp():
+    assert _latest_updated("Directions, 2025 (updated as on July 01, 2026)") == date(2026, 7, 1)
+    entries = parse_listing(
+        '<table class="tablebg"><tr><td><a class="link2" href=NotificationUser.aspx?Id=5>'
+        "X Directions, 2025 (updated as on July 01, 2026)</a></td></tr></table>"
+    )
+    assert entries[0].title == "X Directions, 2025"
+    assert entries[0].updated_on == date(2026, 7, 1)
