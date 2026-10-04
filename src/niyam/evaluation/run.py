@@ -12,14 +12,20 @@ from sqlalchemy.orm import Session
 from niyam.db.models import Document, EvalResult, EvalRun
 from niyam.evaluation.golden import GoldenQuestion
 from niyam.evaluation.metrics import question_metrics, summarize
+from niyam.retrieval.embeddings import Embedder
+from niyam.retrieval.hybrid import rank_documents, search_chunks
 from niyam.retrieval.keyword import RANK_NORMALIZATION, Mode, SearchFilters, keyword_search
 
 log = logging.getLogger(__name__)
 
 
+RETRIEVERS = ("keyword-doc", "keyword-chunk", "vector", "hybrid")
+CHUNKS_PER_QUESTION = 50  # chunk hits rolled up into the top-k documents
+
+
 @dataclass
 class RunConfig:
-    retriever: str = "keyword-doc"
+    retriever: str = "keyword-doc"  # one of RETRIEVERS
     mode: Mode = "any"
     k: int = 10
     normalization: int = RANK_NORMALIZATION  # ts_rank_cd length normalization flags
@@ -50,16 +56,12 @@ class RunReport:
         }
 
 
-def run_eval(session: Session, questions: list[GoldenQuestion], config: RunConfig) -> RunReport:
-    known = set(session.scalars(select(Document.source_id)).all())
-    unknown = {q.id: [r for r in q.relevant if r not in known] for q in questions}
-    unknown = {qid: ids for qid, ids in unknown.items() if ids}
-    for qid, ids in unknown.items():
-        log.warning("%s: relevant documents not in the database: %s", qid, ids)
-
-    results = []
-    for q in questions:
-        filters = SearchFilters(as_of=q.as_of if config.apply_as_of else None)
+def retrieve(
+    session: Session, q: GoldenQuestion, config: RunConfig, embedder: Embedder | None
+) -> list[str]:
+    """Ranked document ids (source_id) for one question."""
+    filters = SearchFilters(as_of=q.as_of if config.apply_as_of else None)
+    if config.retriever == "keyword-doc":
         hits = keyword_search(
             session,
             q.question,
@@ -68,7 +70,29 @@ def run_eval(session: Session, questions: list[GoldenQuestion], config: RunConfi
             mode=config.mode,
             normalization=config.normalization,
         )
-        ranked = [h.source_id for h in hits if h.source_id]
+        return [h.source_id for h in hits if h.source_id]
+    method = {"keyword-chunk": "keyword", "vector": "vector", "hybrid": "hybrid"}[config.retriever]
+    hits = search_chunks(
+        session, q.question, embedder, k=CHUNKS_PER_QUESTION, filters=filters, method=method
+    )
+    return rank_documents(hits)[: config.k]
+
+
+def run_eval(
+    session: Session,
+    questions: list[GoldenQuestion],
+    config: RunConfig,
+    embedder: Embedder | None = None,
+) -> RunReport:
+    known = set(session.scalars(select(Document.source_id)).all())
+    unknown = {q.id: [r for r in q.relevant if r not in known] for q in questions}
+    unknown = {qid: ids for qid, ids in unknown.items() if ids}
+    for qid, ids in unknown.items():
+        log.warning("%s: relevant documents not in the database: %s", qid, ids)
+
+    results = []
+    for q in questions:
+        ranked = retrieve(session, q, config, embedder)
         results.append(QuestionResult(q, ranked, question_metrics(ranked, set(q.relevant))))
     return RunReport(config, results, unknown)
 

@@ -14,7 +14,8 @@ from sqlalchemy.orm import Session
 from niyam.config import get_settings
 from niyam.db.session import get_engine
 from niyam.evaluation.golden import load_golden
-from niyam.evaluation.run import RunConfig, RunReport, run_eval, save_run
+from niyam.evaluation.run import RETRIEVERS, RunConfig, RunReport, run_eval, save_run
+from niyam.retrieval.embeddings import get_embedder
 
 DEFAULT_GOLDEN = Path("eval/golden.jsonl")
 COLUMNS = ["hit@1", "hit@5", "hit@10", "recall@10", "mrr"]
@@ -44,6 +45,7 @@ def format_report(report: RunReport, show_misses: bool = False) -> str:
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(prog="python -m niyam.evaluation")
     parser.add_argument("--golden", type=Path, default=DEFAULT_GOLDEN)
+    parser.add_argument("--retriever", choices=RETRIEVERS, default="keyword-doc")
     parser.add_argument("--mode", choices=["any", "all"], default="any")
     parser.add_argument("--k", type=int, default=10)
     parser.add_argument(
@@ -56,11 +58,16 @@ def main(argv: list[str] | None = None) -> None:
 
     logging.basicConfig(level=get_settings().log_level, format="%(levelname)s %(message)s")
     config = RunConfig(
-        mode=args.mode, k=args.k, normalization=args.norm, apply_as_of=not args.no_as_of
+        retriever=args.retriever,
+        mode=args.mode,
+        k=args.k,
+        normalization=args.norm,
+        apply_as_of=not args.no_as_of,
     )
+    embedder = get_embedder() if args.retriever in ("vector", "hybrid") else None
     questions = load_golden(args.golden)
     with Session(get_engine()) as session:
-        report = run_eval(session, questions, config)
+        report = run_eval(session, questions, config, embedder)
         print(format_report(report, show_misses=args.misses))
         if not args.no_save:
             print(f"\nsaved as eval run {save_run(session, report, args.golden)}")
