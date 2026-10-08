@@ -1,9 +1,11 @@
 """Read the date a question is about ("what was the KYC rule in 2023?").
 
 Only dates introduced by a time word count, so titles such as "KYC Direction, 2016" or
-"Banking Regulation Act, 1949" are not mistaken for the date asked about. Vague dates are
-read near their middle, away from period edges: a year as July 1, a month as the 15th.
-"before X" means the day before X.
+"Banking Regulation Act, 1949" are not mistaken for the date asked about.
+
+A month or a year means the end of that period (capped at today), so "what changed in
+September 2026?" includes a change made on September 18. "before X" means the day before
+X starts. A period that hasn't started yet is not a date we can answer about.
 """
 
 import re
@@ -63,19 +65,25 @@ class ParsedDate:
     text: str  # the words it was read from
 
 
-def _build(m: re.Match) -> date | None:
+def _period(m: re.Match) -> tuple[date, date] | None:
+    """(first day, last day) of the date or period matched."""
     g = m.groupdict()
     try:
         if g.get("iso"):
-            return date.fromisoformat(g["iso"])
+            d = date.fromisoformat(g["iso"])
+            return d, d
         if g.get("dmy"):
-            d, mo, y = (int(x) for x in re.split(r"[./]", g["dmy"]))
-            return date(y, mo, d)
+            dd, mo, y = (int(x) for x in re.split(r"[./]", g["dmy"]))
+            return date(y, mo, dd), date(y, mo, dd)
         year = int(g["year"])
         if g.get("month"):
             month = _MONTHS[g["month"].lower().rstrip(".")]
-            return date(year, month, int(g["day"]) if g.get("day") else 15)
-        return date(year, 7, 1)
+            if g.get("day"):
+                d = date(year, month, int(g["day"]))
+                return d, d
+            last = date(year + (month == 12), month % 12 + 1, 1) - timedelta(days=1)
+            return date(year, month, 1), last
+        return date(year, 1, 1), date(year, 12, 31)
     except (ValueError, KeyError):
         return None
 
@@ -85,13 +93,13 @@ def parse_as_of(question: str, today: date | None = None) -> ParsedDate | None:
     today = today or date.today()
     for pattern in PATTERNS:
         for m in pattern.finditer(question):
-            on = _build(m)
-            if on is None:
+            period = _period(m)
+            if period is None or period[0] > today:
                 continue
+            start, end = period
             if m.group("cue").lower() in ("before", "until", "till", "by"):
-                on -= timedelta(days=1)
-            if on <= today:
-                return ParsedDate(on, m.group(0))
+                return ParsedDate(start - timedelta(days=1), m.group(0))
+            return ParsedDate(min(end, today), m.group(0))
     return None
 
 

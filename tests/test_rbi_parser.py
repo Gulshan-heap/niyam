@@ -284,3 +284,38 @@ def test_lowercase_updated_stamp():
     )
     assert entries[0].title == "X Directions, 2025"
     assert entries[0].updated_on == date(2026, 7, 1)
+
+
+@pytest.mark.parametrize(
+    "text,expected",
+    [
+        (
+            "2. These Directions shall come into force with effect from April 1, 2027.",
+            date(2027, 4, 1),
+        ),
+        ("The amendment shall come into force from 1st October, 2025.", date(2025, 10, 1)),
+        ("These instructions shall be effective from January 1, 2026.", date(2026, 1, 1)),
+        ("These Directions shall come into force with immediate effect.", None),
+        ("They shall come into force on the date of their publication in the Gazette.", None),
+        ("Paragraph 5 shall come into force with effect from July 1, 2026.", None),  # one para only
+    ],
+)
+def test_commencement_date(text, expected):
+    from niyam.ingest.scrapers.rbi import _effective_from
+
+    assert _effective_from([text]) == expected
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "ii. These Directions shall come into force immediately except for para 6, which shall "
+        "come into effect from November 1, 2025.",
+        "2. These Directions shall come into force from January 1, 2026, or from any earlier "
+        "date as decided by a RE as per its internal policy.",
+    ],
+)
+def test_commencement_exceptions_and_early_adoption_use_the_issue_date(text):
+    from niyam.ingest.scrapers.rbi import _effective_from
+
+    assert _effective_from([text]) is None

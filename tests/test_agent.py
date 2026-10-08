@@ -106,7 +106,7 @@ def test_out_of_scope_abstains_without_rewriting(session, indexed):
 def test_date_is_read_from_the_question(session, indexed):
     grader = Script({"relevant": [], "answerable": False, "better_query": ""})
     st = run_agent(session, "zorblax rule in March 2024", Script(), FakeEmbedder(), grader=grader)
-    assert (st["as_of"], st["as_of_source"]) == (date(2024, 3, 15), "question")
+    assert (st["as_of"], st["as_of_source"]) == (date(2024, 3, 31), "question")
     explicit = run_agent(
         session,
         "zorblax rule in March 2024",

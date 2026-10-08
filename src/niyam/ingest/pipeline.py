@@ -111,8 +111,10 @@ def upsert_document(
         "is_withdrawn": page.is_withdrawn,
         "withdrawn_on": page.withdrawn_on,
         "text_as_of": text_as_of or page.updated_on or issued,
-        # Initial validity window from what the page states; the temporal layer refines it.
-        "valid_from": (doc.effective_from if doc else None) or issued,
+        # Validity window from what the page states: in force from its stated commencement
+        # date ("with effect from April 1, 2027"), else from issue; until withdrawn.
+        "effective_from": page.effective_from,
+        "valid_from": page.effective_from or issued,
         "valid_to": page.withdrawn_on,
         "url": detail_url(page.rbi_id),
         "pdf_url": page.pdf_url or pdf_url,

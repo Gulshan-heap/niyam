@@ -30,6 +30,26 @@ _MONTHS = (
     "|Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec"
 )
 DATE_RE = re.compile(rf"\b({_MONTHS})\.?\s+(\d{{1,2}}),?\s+(\d{{4}})\b")
+# Commencement clause: "These Directions shall come into force with effect from April 1, 2027"
+COMMENCE_RE = re.compile(
+    r"(?:come|comes|coming) into (?:force|effect)\s+(?:with effect\s+)?(?:from|on)\s+(?:the\s+)?"
+    rf"(?P<date>(?:{_MONTHS})\.?\s+\d{{1,2}},?\s+\d{{4}}|\d{{1,2}}(?:st|nd|rd|th)?\s+(?:{_MONTHS})\.?,?\s+\d{{4}})"
+    r"|shall be effective (?:from|on)\s+(?:the\s+)?"
+    rf"(?P<date2>(?:{_MONTHS})\.?\s+\d{{1,2}},?\s+\d{{4}}|\d{{1,2}}(?:st|nd|rd|th)?\s+(?:{_MONTHS})\.?,?\s+\d{{4}})",
+    re.I,
+)
+WHOLE_DOC_RE = re.compile(
+    r"\b(?:these|this|the)\s+(?:\w+\s+){0,3}?"
+    r"(?:directions?|instructions|guidelines|regulations|circular|framework|scheme|norms|rules"
+    r"|amendments?)\b",
+    re.I,
+)
+# Words between "These Directions" and the commencement that make it about part of them.
+NOT_WHOLE_RE = re.compile(
+    r"\b(?:except|para(?:graph)?s?|which|immediately|clause|section|chapter|provisions?)\b", re.I
+)
+EARLY_ADOPTION_RE = re.compile(r"\W*or\s+(?:from\s+)?(?:any\s+)?(?:an\s+)?earlier", re.I)
+DAY_FIRST_RE = re.compile(rf"(\d{{1,2}})(?:st|nd|rd|th)?\s+({_MONTHS})\.?,?\s+(\d{{4}})", re.I)
 LETTERHEAD_DATE_RE = re.compile(  # "Mumbai, the 2nd December, 2024"
     rf"\b(?:Mumbai|New Delhi),?\s+(?:the\s+)?(\d{{1,2}})(?:st|nd|rd|th)?\s+"
     rf"({_MONTHS})\.?,?\s+(\d{{4}})",
@@ -100,6 +120,7 @@ class DetailPage:
     department: str | None
     issued_date: date | None
     updated_on: date | None
+    effective_from: date | None
     is_withdrawn: bool
     withdrawn_on: date | None
     pdf_url: str | None
@@ -312,6 +333,33 @@ def _issued_date(blocks: list[str]) -> date | None:
     return None
 
 
+def _effective_from(blocks: list[str]) -> date | None:
+    """The explicit commencement date, if the document states one near its start
+    ("shall come into force with effect from April 1, 2027"). "With immediate effect" or
+    "from the date of publication" give none, and the issue date applies, as it does when
+    early adoption is allowed ("... from January 1, 2026, or from any earlier date ...")."""
+    for block in blocks[:150]:
+        m = COMMENCE_RE.search(block)
+        if not m:
+            continue
+        # Only the document's own commencement, stated directly: not one paragraph's
+        # ("paragraph 5 shall ...") nor an exception ("immediately except for para 6, which
+        # shall come into effect from ...").
+        sentence = re.split(r"(?<=[.;])\s", block[: m.start()])[-1]
+        subject_match = WHOLE_DOC_RE.search(sentence)
+        if not subject_match or NOT_WHOLE_RE.search(sentence[subject_match.end() :]):
+            continue
+        if EARLY_ADOPTION_RE.match(block[m.end() : m.end() + 80]):
+            return None
+        text = m.group("date") or m.group("date2")
+        day_first = DAY_FIRST_RE.fullmatch(text)
+        if day_first:
+            day, month, year = day_first.groups()
+            text = f"{month} {day}, {year}"
+        return parse_date(text[0].upper() + text[1:].lower())
+    return None
+
+
 def _latest_updated(text: str) -> date | None:
     dates = [
         parse_date(f"{m.group(1).capitalize()} {m.group(2)} {m.group(3)}")
@@ -369,6 +417,7 @@ def parse_detail(html: str, rbi_id: int) -> DetailPage:
         department=_department(ref_no, head),
         issued_date=issued,
         updated_on=_latest_updated(raw_title + "\n" + head),
+        effective_from=_effective_from(blocks),
         is_withdrawn=m is not None,
         withdrawn_on=withdrawn_on,
         pdf_url=pdf["href"] if pdf else None,

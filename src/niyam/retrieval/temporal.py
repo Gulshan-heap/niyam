@@ -31,7 +31,7 @@ def amendments_in_force(session: Session, doc_ids: list[int], as_of: date) -> li
         .where(
             Relation.type == "amends",
             Relation.dst_doc_id.in_(doc_ids),
-            amender.issued_date <= as_of,
+            amender.valid_from <= as_of,  # in force: issued AND commenced
             or_(amender.valid_to.is_(None), amender.valid_to > as_of),
             or_(as_of < date.today(), amender.is_withdrawn.is_(False)),
         )

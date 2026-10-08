@@ -15,10 +15,13 @@ TODAY = date(2026, 10, 4)
         ("credit card closure rules as of June 1, 2024", date(2024, 6, 1)),
         ("PSL targets as on 2023-03-31", date(2023, 3, 31)),
         ("gold loan LTV as of 15.08.2025", date(2025, 8, 15)),
-        ("What was the gold loan LTV in August 2025?", date(2025, 8, 15)),
-        ("What was the overall PSL target in 2023?", date(2023, 7, 1)),
-        ("digital lending rules before May 2025", date(2025, 5, 14)),
-        ("What did the rules say back in 2019?", date(2019, 7, 1)),
+        ("What was the gold loan LTV in August 2025?", date(2025, 8, 31)),
+        ("What was the overall PSL target in 2023?", date(2023, 12, 31)),
+        ("digital lending rules before May 2025", date(2025, 4, 30)),
+        ("What did the rules say back in 2019?", date(2019, 12, 31)),
+        ("What changed in September 2026?", date(2026, 9, 30)),
+        ("rules in force in 2026", TODAY),  # current period: capped at today
+        ("PSL rule before 2024", date(2023, 12, 31)),
     ],
 )
 def test_dates_introduced_by_a_time_word(question, expected):
