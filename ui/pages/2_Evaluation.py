@@ -27,6 +27,9 @@ if not runs:
     st.info("No runs yet. Run `uv run python -m niyam.evaluation`.")
     st.stop()
 
+answer_runs = [r for r in runs if r["retriever"] == "answer-agent"]
+runs = [r for r in runs if r["retriever"] != "answer-agent"]
+
 rows = []
 for r in runs:
     s = r["summary"]
@@ -60,3 +63,28 @@ st.line_chart(chart, color=COLORS, y_label="score (0–1)", x_label="run")
 
 st.subheader("All runs")
 st.dataframe(df, hide_index=True, width="stretch")
+
+if answer_runs:
+    st.subheader("Answers (full agent)")
+    st.caption(
+        "answered: share not abstained · grounded: answer sentences with a verified quote · "
+        "cites relevant: a verified citation is one of the question's documents · "
+        "cites in force: cited documents in force on the question's date"
+    )
+    st.dataframe(
+        pd.DataFrame(
+            {
+                "run": f"#{r['id']}",
+                "commit": (r["git_sha"] or "")[:7] + (" (dirty)" if r["git_dirty"] else ""),
+                "questions": r["questions"],
+                "answered": r["summary"].get("answered"),
+                "grounded": r["summary"].get("grounded"),
+                "cites relevant": r["summary"].get("cites_relevant"),
+                "cites in force": r["summary"].get("cites_in_force"),
+                "when": r["created_at"][:16].replace("T", " "),
+            }
+            for r in answer_runs
+        ),
+        hide_index=True,
+        width="stretch",
+    )

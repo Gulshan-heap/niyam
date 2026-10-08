@@ -67,3 +67,10 @@ def test_as_of_filter_applies_to_chunks(session):
 def test_vector_method_needs_an_embedder(session):
     with pytest.raises(ValueError):
         search_chunks(session, "zorblax", None, method="hybrid")
+
+
+def test_rrf_weights_shift_the_balance():
+    keyword, vector = [1, 2], [2, 1]
+    assert rrf([keyword, vector]) == pytest.approx({1: 1 / 61 + 1 / 62, 2: 1 / 62 + 1 / 61})
+    weighted = rrf([keyword, vector], weights=[0.3, 1.0])
+    assert max(weighted, key=weighted.get) == 2  # the vector list's top item wins

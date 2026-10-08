@@ -20,6 +20,11 @@ from niyam.retrieval.keyword import Mode, SearchFilters, build_tsquery
 Method = Literal["keyword", "vector", "hybrid"]
 
 RRF_K = 60
+# Weight of the keyword list in the fusion (the vector list has 1.0). On the 44-question
+# golden set, 0.3 gave the best MRR (0.80 vs 0.78 at 1.0 and 0.78 for vectors alone) and
+# hit@5; keyword matching still matters for exact reference numbers. Small sample: revisit
+# as the golden set grows.
+KEYWORD_WEIGHT = 0.3
 CANDIDATES = 50  # per method, before fusion
 CHUNK_RANK_NORMALIZATION = 5  # as for documents: log length + proximity (best on golden set)
 
@@ -99,11 +104,15 @@ def vector_candidates(
     return list(rows)
 
 
-def rrf(ranked_lists: list[list[int]], k: int = RRF_K) -> dict[int, float]:
+def rrf(
+    ranked_lists: list[list[int]], k: int = RRF_K, weights: list[float] | None = None
+) -> dict[int, float]:
+    """Reciprocal rank fusion: sum of weight / (k + rank) over the lists an item appears in."""
+    weights = weights or [1.0] * len(ranked_lists)
     scores: dict[int, float] = {}
-    for ranked in ranked_lists:
+    for ranked, w in zip(ranked_lists, weights, strict=True):
         for rank, item in enumerate(ranked, start=1):
-            scores[item] = scores.get(item, 0.0) + 1.0 / (k + rank)
+            scores[item] = scores.get(item, 0.0) + w / (k + rank)
     return scores
 
 
@@ -115,6 +124,7 @@ def search_chunks(
     filters: SearchFilters | None = None,
     method: Method = "hybrid",
     candidates: int = CANDIDATES,
+    keyword_weight: float = KEYWORD_WEIGHT,
 ) -> list[ChunkHit]:
     kw = keyword_candidates(session, query, candidates, filters) if method != "vector" else []
     vec: list[int] = []
@@ -122,7 +132,7 @@ def search_chunks(
         if embedder is None:
             raise ValueError(f"method {method!r} needs an embedder")
         vec = vector_candidates(session, embedder.embed_query(query), candidates, filters)
-    scores = rrf([kw, vec])
+    scores = rrf([kw, vec], weights=[keyword_weight, 1.0])
     top = sorted(scores, key=lambda cid: -scores[cid])[:k]
     if not top:
         return []

@@ -81,6 +81,7 @@ class LiteLLM:
                     temperature=self.temperature,
                     timeout=self.timeout,
                     response_format={"type": "json_object"},
+                    num_retries=2,  # free tiers rate-limit for a few seconds at a time
                 )
                 return resp.choices[0].message.content or ""
             except Exception as exc:  # provider errors vary; try the next model
