@@ -41,3 +41,10 @@ class FastEmbedder:
 @lru_cache
 def get_embedder() -> FastEmbedder:
     return FastEmbedder()
+
+
+def warm_up() -> None:
+    """Load the embedding model and import litellm now: otherwise the first question after a
+    start pays ~20 s for both."""
+    get_embedder().embed_query("warm up")
+    import litellm  # noqa: F401

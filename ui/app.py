@@ -190,3 +190,7 @@ def pct(v):
 @app.template_filter("num")
 def num(v):
     return "–" if v is None else f"{v:.3f}"
+
+
+if __name__ == "__main__":  # python ui/app.py (the container uses gunicorn instead)
+    app.run(port=int(os.environ.get("PORT", 5000)), debug=True)

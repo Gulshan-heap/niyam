@@ -20,7 +20,7 @@ from niyam.bot.send import format_answer
 from niyam.config import get_settings
 from niyam.db.session import get_engine
 from niyam.rag.llm import LiteLLM, grader_llm
-from niyam.retrieval.embeddings import get_embedder
+from niyam.retrieval.embeddings import get_embedder, warm_up
 
 log = logging.getLogger("niyam.bot")
 
@@ -112,6 +112,7 @@ def main() -> None:
     token = get_settings().telegram_bot_token
     if not token:
         raise SystemExit("Set TELEGRAM_BOT_TOKEN (from @BotFather) in .env to run the bot.")
+    warm_up()
     build_app(token).run_polling()
 
 

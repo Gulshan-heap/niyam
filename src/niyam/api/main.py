@@ -1,3 +1,5 @@
+import threading
+from contextlib import asynccontextmanager
 from datetime import date, datetime
 from typing import Annotated, Literal
 
@@ -14,11 +16,19 @@ from niyam.ingest.scrapers.rbi import detail_url
 from niyam.rag.cache import corpus_version, get_cached, put_cached
 from niyam.rag.dates import resolve_as_of
 from niyam.rag.llm import LLM, LiteLLM, grader_llm
-from niyam.retrieval.embeddings import Embedder, get_embedder
+from niyam.retrieval.embeddings import Embedder, get_embedder, warm_up
 from niyam.retrieval.hybrid import search_chunks
 from niyam.retrieval.keyword import SearchFilters, keyword_search
 
-app = FastAPI(title="Niyam", version=__version__)
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    # In a thread so /health answers while the model loads.
+    threading.Thread(target=warm_up, daemon=True).start()
+    yield
+
+
+app = FastAPI(title="Niyam", version=__version__, lifespan=lifespan)
 
 
 def check_database(session: Annotated[Session, Depends(get_session)]) -> dict:
