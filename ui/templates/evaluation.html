@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+{% block title %}Niyam · Evaluation{% endblock %}
+{% block content %}
+<h1>Retrieval evaluation</h1>
+<p class="muted">Hand-written questions with the RBI documents that answer them (eval/golden.jsonl).
+  Each run is stored with its git commit; 'dirty' means uncommitted code.</p>
+
+{% if error %}
+  <p class="alert error">{{ error }}</p>
+{% elif not rows and not answers %}
+  <p class="alert warn">No runs yet. Run <code>uv run python -m niyam.evaluation</code>.</p>
+{% else %}
+  {% if headline %}
+    <p class="muted">Headline numbers: run {{ headline.run }} ({{ headline.retriever }}, date filter on)</p>
+    <div class="metrics">
+      <div><span>MRR</span><strong>{{ headline.MRR | num }}</strong></div>
+      <div><span>hit@10</span><strong>{{ headline['hit@10'] | num }}</strong></div>
+      <div><span>In force@5</span><strong>{{ headline.in_force | pct }}</strong></div>
+    </div>
+
+    <h2>Across runs</h2>
+    <svg viewBox="0 0 {{ chart.w }} {{ chart.h }}" role="img" aria-label="MRR, hit@1 and hit@10 across runs" class="chart">
+      {% for t in chart.ticks %}
+        <line x1="{{ chart.pad }}" x2="{{ chart.w - chart.pad }}" y1="{{ t.y }}" y2="{{ t.y }}" class="grid"/>
+        <text x="{{ chart.pad - 6 }}" y="{{ t.y + 4 }}" text-anchor="end">{{ t.v }}</text>
+      {% endfor %}
+      {% for x in chart.xs %}
+        <text x="{{ x.x }}" y="{{ chart.h - chart.pad + 16 }}" text-anchor="middle">{{ x.label }}</text>
+      {% endfor %}
+      {% for l in chart.lines %}
+        <polyline points="{{ l.points }}" fill="none" stroke="{{ l.color }}" stroke-width="2"/>
+      {% endfor %}
+    </svg>
+    <p class="legend">
+      {% for l in chart.lines %}<span><i style="background: {{ l.color }}"></i>{{ l.label }}</span>{% endfor %}
+    </p>
+
+    <h2>All runs</h2>
+    <div class="scroll">
+    <table>
+      <thead><tr><th>run</th><th>retriever</th><th>date filter</th><th>commit</th><th>questions</th>
+        <th>MRR</th><th>hit@1</th><th>hit@10</th><th>in force@5</th><th>when</th></tr></thead>
+      <tbody>
+      {% for r in rows %}
+        <tr><td>{{ r.run }}</td><td>{{ r.retriever }}</td><td>{{ 'yes' if r.date_filter else 'no' }}</td>
+          <td>{{ r.commit }}</td><td>{{ r.questions }}</td><td>{{ r.MRR | num }}</td>
+          <td>{{ r['hit@1'] | num }}</td><td>{{ r['hit@10'] | num }}</td>
+          <td>{{ r.in_force | pct }}</td><td>{{ r.when }}</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    </div>
+  {% endif %}
+
+  {% if answers %}
+    <h2>Answers (full agent)</h2>
+    <p class="muted">answered: share not abstained · grounded: answer sentences with a verified quote ·
+      cites relevant: a verified citation is one of the question's documents ·
+      cites in force: cited documents in force on the question's date</p>
+    <div class="scroll">
+    <table>
+      <thead><tr><th>run</th><th>commit</th><th>questions</th><th>answered</th><th>grounded</th>
+        <th>cites relevant</th><th>cites in force</th><th>when</th></tr></thead>
+      <tbody>
+      {% for r in answers %}
+        <tr><td>{{ r.run }}</td><td>{{ r.commit }}</td><td>{{ r.questions }}</td>
+          <td>{{ r.answered | pct }}</td><td>{{ r.grounded | pct }}</td>
+          <td>{{ r.cites_relevant | pct }}</td><td>{{ r.cites_in_force | pct }}</td><td>{{ r.when }}</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    </div>
+  {% endif %}
+{% endif %}
+{% endblock %}

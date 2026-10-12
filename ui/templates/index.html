@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Niyam</h1>
+<p class="muted">Which RBI rule is in force on a given date? Answers quote their sources.</p>
+
+<form method="get" class="ask" onsubmit="var b = this.querySelector('button'); b.disabled = true; b.textContent = 'Searching circulars…'">
+  <label for="question">Question</label>
+  <input id="question" name="question" type="text" value="{{ question }}" required
+         placeholder="What is the minimum cooling-off period for digital loans?">
+  <div class="row">
+    <label class="check"><input type="checkbox" name="use_date" {{ 'checked' if use_date }}> As of a past date</label>
+    <input type="date" name="as_of" value="{{ as_of }}" aria-label="Date">
+    <button type="submit">Ask</button>
+  </div>
+</form>
+
+{% if error %}<p class="alert error">{{ error }}</p>{% endif %}
+
+{% if result %}
+  <p class="muted">Rules in force on {{ result.as_of }}{% if date_source %} ({{ date_source }}){% endif %}</p>
+  <details>
+    <summary>How this answer was found</summary>
+    <pre>{% for step in result.trace %}{{ step }}
+{% endfor %}</pre>
+  </details>
+
+  {% if result.abstained %}
+    <p class="alert warn">{{ result.note or "The sources found don't answer this question." }}</p>
+  {% else %}
+    <section class="answer">
+      {% for s in result.sentences %}
+        <p>{{ s.text }}
+          {% for r in s.citations | selectattr('verified') | map(attribute='passage') | unique | sort %}
+            <a class="ref" href="#src-{{ r }}">[{{ r }}]</a>
+          {% endfor %}
+        </p>
+      {% endfor %}
+    </section>
+    {% if result.unsupported %}
+      <details>
+        <summary>{{ result.unsupported | length }} sentence(s) dropped: no source quote</summary>
+        {% for t in result.unsupported %}<p>{{ t }}</p>{% endfor %}
+      </details>
+    {% endif %}
+
+    <h2>Sources</h2>
+    {% for src in sources %}
+      <details id="src-{{ src.label }}">
+        <summary>[{{ src.label }}] {{ src.title }}
+          <span class="badge {{ 'ok' if src.in_force else 'old' }}">{{ 'in force' if src.in_force else 'not in force on that date' }}</span>
+        </summary>
+        {% if src.heading %}<p class="muted">{{ src.heading }}</p>{% endif %}
+        <div class="excerpt">{{ src.excerpt.before }}<mark>{{ src.excerpt.quote }}</mark>{{ src.excerpt.after }}</div>
+        <p class="muted">{{ src.meta }} · <a href="{{ src.url }}" rel="noopener">open on rbi.org.in</a></p>
+        {% if src.amended_by %}
+          <strong>Amended by</strong>
+          <ul>
+            {% for a in src.amended_by %}
+              <li>{{ a.issued_date }}: <a href="{{ a.url }}" rel="noopener">{{ a.title }}</a>{% if a.is_withdrawn %} <em>(withdrawn)</em>{% endif %}</li>
+            {% endfor %}
+          </ul>
+        {% endif %}
+      </details>
+    {% endfor %}
+  {% endif %}
+{% endif %}
+{% endblock %}
