@@ -107,6 +107,8 @@ def main() -> None:
     logging.basicConfig(
         level=get_settings().log_level, format="%(asctime)s %(levelname)s %(name)s: %(message)s"
     )
+    # httpx logs every request URL, and Telegram's URLs contain the bot token.
+    logging.getLogger("httpx").setLevel(logging.WARNING)
     token = get_settings().telegram_bot_token
     if not token:
         raise SystemExit("Set TELEGRAM_BOT_TOKEN (from @BotFather) in .env to run the bot.")
