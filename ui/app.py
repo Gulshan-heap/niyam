@@ -144,8 +144,10 @@ def _chart(rows: list[dict]) -> dict:
 @app.get("/evaluation")
 def evaluation():
     try:
-        runs = httpx.get(f"{API_URL}/eval/runs", headers=API_HEADERS, timeout=30).json()
-    except httpx.HTTPError as exc:
+        r = httpx.get(f"{API_URL}/eval/runs", headers=API_HEADERS, timeout=60)
+        r.raise_for_status()
+        runs = r.json()
+    except (httpx.HTTPError, ValueError) as exc:
         return render_template("evaluation.html", error=f"Could not load runs from the API: {exc}")
     answer_runs = [r for r in runs if r["retriever"] == "answer-agent"]
     retrieval_runs = [r for r in runs if r["retriever"] != "answer-agent"]
