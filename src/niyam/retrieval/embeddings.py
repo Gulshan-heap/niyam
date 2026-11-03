@@ -46,5 +46,7 @@ def get_embedder() -> FastEmbedder:
 def warm_up() -> None:
     """Load the embedding model and import litellm now: otherwise the first question after a
     start pays ~20 s for both."""
+    from niyam.rag.llm import import_litellm
+
     get_embedder().embed_query("warm up")
-    import litellm  # noqa: F401
+    import_litellm()

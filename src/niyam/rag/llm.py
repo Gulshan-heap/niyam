@@ -8,6 +8,7 @@ models whose provider has no key are skipped.
 
 import logging
 import os
+import threading
 from typing import Protocol
 
 from dotenv import load_dotenv
@@ -15,6 +16,19 @@ from dotenv import load_dotenv
 from niyam.config import get_settings
 
 log = logging.getLogger(__name__)
+
+_litellm_import_lock = threading.Lock()
+
+
+def import_litellm():
+    """Import litellm under a lock: the start-up warm-up thread and a first request can import
+    it at the same time, which deadlocks Python's per-module import locks and leaves litellm
+    half-imported."""
+    with _litellm_import_lock:
+        import litellm
+
+        return litellm
+
 
 PROVIDER_KEYS = {
     "groq": "GROQ_API_KEY",
@@ -41,7 +55,8 @@ def enable_tracing() -> bool:
         return False
     try:
         import langfuse  # noqa: F401
-        import litellm
+
+        litellm = import_litellm()
     except ImportError:
         log.warning("LANGFUSE_* keys are set but the langfuse package is not installed")
         return False
@@ -70,7 +85,7 @@ class LiteLLM:
         self.timeout = s.llm_timeout_seconds
 
     def complete(self, messages: list[dict]) -> str:
-        import litellm  # heavy import, only when actually calling a model
+        litellm = import_litellm()  # heavy import, only when actually calling a model
 
         last: Exception | None = None
         for model in self.models:
