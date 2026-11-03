@@ -11,6 +11,8 @@ class Settings(BaseSettings):
     embedding_dim: int = 384
     data_dir: str = "data"
     log_level: str = "INFO"
+    # When set, every endpoint except /health requires this value in an X-API-Key header.
+    api_key: str | None = None
 
     # Scraping: identify ourselves and stay slow.
     user_agent: str = "NiyamBot/0.1 (+https://github.com/Gulshan-heap/niyam)"

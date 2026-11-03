@@ -3,13 +3,15 @@ from contextlib import asynccontextmanager
 from datetime import date, datetime
 from typing import Annotated, Literal
 
-from fastapi import Depends, FastAPI, HTTPException, Query, Response, status
+from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response, status
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
 from niyam import __version__
 from niyam.agent.graph import run_agent
+from niyam.config import get_settings
 from niyam.db.models import Document, EvalRun, Relation
 from niyam.db.session import get_session
 from niyam.ingest.scrapers.rbi import detail_url
@@ -29,6 +31,14 @@ async def lifespan(_: FastAPI):
 
 
 app = FastAPI(title="Niyam", version=__version__, lifespan=lifespan)
+
+
+@app.middleware("http")
+async def require_api_key(request: Request, call_next):
+    key = get_settings().api_key
+    if key and request.url.path != "/health" and request.headers.get("x-api-key") != key:
+        return JSONResponse({"detail": "invalid or missing API key"}, status_code=401)
+    return await call_next(request)
 
 
 def check_database(session: Annotated[Session, Depends(get_session)]) -> dict:

@@ -1,0 +1,32 @@
+name: Daily ingest
+
+# Replaces the always-on worker when hosting on free tiers: runs the same job as
+# `python -m niyam.scheduler` once, against the hosted database.
+on:
+  schedule:
+    - cron: "30 14 * * *"  # 20:00 India time
+  workflow_dispatch:
+
+jobs:
+  ingest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      NIYAM_DATABASE_URL: ${{ secrets.NIYAM_DATABASE_URL }}
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - name: Install
+        run: uv sync --frozen --no-dev
+      - name: Cache embedding model
+        uses: actions/cache@v4
+        with:
+          path: data/models
+          key: embedding-model-bge-small-en-v1.5
+      - name: Migrate
+        run: uv run alembic upgrade head
+      - name: Ingest
+        run: uv run python -c "from niyam.scheduler import daily_ingest; daily_ingest()"

@@ -14,6 +14,7 @@ import httpx
 from flask import Flask, render_template, request
 
 API_URL = os.environ.get("NIYAM_API_URL", "http://localhost:8000")
+API_HEADERS = {"X-API-Key": os.environ["NIYAM_API_KEY"]} if os.environ.get("NIYAM_API_KEY") else {}
 CONTEXT_CHARS = 700  # document text shown around a highlighted quote
 CACHE_TTL = 3600
 SOURCE_LABELS = {
@@ -33,14 +34,19 @@ def _get_json(path: str) -> dict:
     hit = _cache.get(path)
     if hit and time.monotonic() - hit[0] < CACHE_TTL:
         return hit[1]
-    r = httpx.get(f"{API_URL}{path}", timeout=30)
+    r = httpx.get(f"{API_URL}{path}", headers=API_HEADERS, timeout=30)
     r.raise_for_status()
     _cache[path] = (time.monotonic(), r.json())
     return _cache[path][1]
 
 
 def ask(question: str, as_of: str | None) -> dict:
-    r = httpx.post(f"{API_URL}/ask", json={"question": question, "as_of": as_of}, timeout=120)
+    r = httpx.post(
+        f"{API_URL}/ask",
+        json={"question": question, "as_of": as_of},
+        headers=API_HEADERS,
+        timeout=120,
+    )
     r.raise_for_status()
     return r.json()
 
@@ -138,7 +144,7 @@ def _chart(rows: list[dict]) -> dict:
 @app.get("/evaluation")
 def evaluation():
     try:
-        runs = httpx.get(f"{API_URL}/eval/runs", timeout=30).json()
+        runs = httpx.get(f"{API_URL}/eval/runs", headers=API_HEADERS, timeout=30).json()
     except httpx.HTTPError as exc:
         return render_template("evaluation.html", error=f"Could not load runs from the API: {exc}")
     answer_runs = [r for r in runs if r["retriever"] == "answer-agent"]
