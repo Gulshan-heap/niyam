@@ -9,7 +9,14 @@ from niyam.config import get_settings
 
 @lru_cache
 def get_engine() -> Engine:
-    return create_engine(get_settings().database_url, pool_pre_ping=True)
+    # Keepalives stop NATs and serverless Postgres hosts from dropping long-lived connections.
+    keepalives = {
+        "keepalives": 1,
+        "keepalives_idle": 30,
+        "keepalives_interval": 10,
+        "keepalives_count": 5,
+    }
+    return create_engine(get_settings().database_url, pool_pre_ping=True, connect_args=keepalives)
 
 
 def get_session() -> Iterator[Session]:
