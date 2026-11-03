@@ -18,11 +18,6 @@
 
 {% if result %}
   <p class="muted">Rules in force on {{ result.as_of }}{% if date_source %} ({{ date_source }}){% endif %}</p>
-  <details>
-    <summary>How this answer was found</summary>
-    <pre>{% for step in result.trace %}{{ step }}
-{% endfor %}</pre>
-  </details>
 
   {% if result.abstained %}
     <p class="alert warn">{{ result.note or "The sources found don't answer this question." }}</p>
