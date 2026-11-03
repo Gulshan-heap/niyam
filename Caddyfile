@@ -1,0 +1,10 @@
+# HTTPS is issued automatically for $DOMAIN (e.g. niyam.centralindia.cloudapp.azure.com).
+{$DOMAIN} {
+	encode gzip
+	reverse_proxy ui:8501 {
+		# /ask can take a while (LLM calls).
+		transport http {
+			response_header_timeout 150s
+		}
+	}
+}

@@ -1,0 +1,91 @@
+# Production stack for a single VM: docker compose -f docker-compose.prod.yml up -d --build
+# Only Caddy (80/443) is public; the API and database stay on the internal network.
+# Needs in .env: POSTGRES_PASSWORD, DOMAIN, GROQ_API_KEY (and TELEGRAM_BOT_TOKEN for the bot).
+x-app-env: &app-env
+  NIYAM_DATABASE_URL: postgresql+psycopg://niyam:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@db:5432/niyam
+
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: niyam
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: niyam
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U niyam -d niyam"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  api:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    environment: *app-env
+    volumes:
+      - ./data:/app/data
+    depends_on:
+      db:
+        condition: service_healthy
+    command: sh -c "alembic upgrade head && uvicorn niyam.api.main:app --host 0.0.0.0 --port 8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  worker:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    environment: *app-env
+    volumes:
+      - ./data:/app/data
+    depends_on:
+      api:
+        condition: service_healthy
+    command: python -m niyam.scheduler
+
+  bot:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    environment: *app-env
+    volumes:
+      - ./data:/app/data
+    depends_on:
+      api:
+        condition: service_healthy
+    command: python -m niyam.bot.telegram
+
+  ui:
+    build:
+      context: .
+      dockerfile: Dockerfile.ui
+    restart: unless-stopped
+    environment:
+      NIYAM_API_URL: http://api:8000
+    depends_on:
+      api:
+        condition: service_healthy
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMAIN: ${DOMAIN:?set DOMAIN in .env}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+    depends_on:
+      - ui
+
+volumes:
+  pgdata:
+  caddy_data:
